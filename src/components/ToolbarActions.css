@@ -1,0 +1,122 @@
+/**
+ * ToolbarActions Component Styles
+ * Custom styling for toolbar file inputs and component-specific elements
+ */
+
+/* File input container styling */
+.toolbar-file-label {
+  display: block;
+  margin: 16px 0;
+  cursor: pointer;
+}
+
+.toolbar-file-text {
+  margin-left: 8px;
+  color: #666;
+  font-size: 14px;
+}
+
+/* File input styling */
+.toolbar-file-input {
+  display: inline-block;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toolbar-file-input:hover {
+  background-color: #f0f0f0;
+  border-color: #999;
+}
+
+.toolbar-file-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+/* Search results styling */
+.search-results-container {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 16px;
+}
+
+.search-result-item {
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background-color: #fafafa;
+  transition: background-color 0.2s ease;
+}
+
+.search-result-item:hover {
+  background-color: #f0f0f0;
+  cursor: pointer;
+}
+
+.search-result-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #1976d2;
+}
+
+.search-result-content {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Dialog content spacing */
+.toolbar-dialog-content {
+  min-width: 400px;
+  padding: 16px 24px;
+}
+
+/* TreeSearch specific styles */
+.tree-search-info {
+  background-color: #e3f2fd;
+  padding: 16px;
+  border-radius: 4px;
+  margin: 16px 0;
+  border-left: 4px solid #1976d2;
+}
+
+.tree-search-info p {
+  margin: 8px 0;
+  color: #1565c0;
+}
+
+/* Badge and counter styles */
+.toolbar-badge {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Animation for search loading */
+.search-loading {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .toolbar-dialog-content {
+    min-width: 300px;
+  }
+
+  .toolbar-file-input {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
