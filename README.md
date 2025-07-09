@@ -10,6 +10,8 @@
 
 ## AI generated code- untested, use at own risk. Currently only partially functional to my specs.
 
+![alt text](image.png)
+
 > *Architected following MVP Coding Agency standards with proper TypeScript conventions, clean separation of concerns, and comprehensive testability.*
 
 ### 🎨 **Enhanced Features**
