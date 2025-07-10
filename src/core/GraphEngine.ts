@@ -430,8 +430,33 @@ export class GraphEngine implements IGraphEngine {
 
       // Auto-link if enabled
       if (this.config?.behavior.autoLinking && this.nodes.size > 1) {
-        await this.processWithLinkingAgent(node, context)
+        const linkingResult = await this.processWithLinkingAgent(node, context)
         agentsUsed.push('linking-agent')
+        if (linkingResult.success && linkingResult.data.relationships) {
+          for (const rel of linkingResult.data.relationships) {
+            const edgeResult = await this.createEdge({
+              source: node.id,
+              target: rel.targetNodeId,
+              type: rel.relationshipType,
+              metadata: {
+                created: new Date(),
+                modified: new Date(),
+                confidence: rel.confidence,
+                aiGenerated: true
+              },
+              semantics: {
+                strength: rel.strength,
+                bidirectional: rel.bidirectional,
+                context: rel.context,
+                keywords: rel.keywords
+              },
+              discovery: { discoveredBy: 'ai', confidence: rel.confidence, reasoning: rel.reasoning }
+            }, context)
+            if (edgeResult.success) {
+              agentsUsed.push('linking-agent')
+            }
+          }
+        }
       }
 
       // Emit event
@@ -491,6 +516,7 @@ export class GraphEngine implements IGraphEngine {
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
     const agentsUsed: string[] = []
+    const affectedNodes: string[] = []
 
     try {
       const existingNode = this.nodes.get(nodeId)
@@ -556,9 +582,17 @@ export class GraphEngine implements IGraphEngine {
         const critiqueResult = await this.processWithCritiqueAgent(updatedNode, context)
         agentsUsed.push('critique-agent')
         
-        if (critiqueResult.success && critiqueResult.data.issues.length > 0) {
+        if (critiqueResult.success) {
           updatedNode.aiMetadata.suggestions = critiqueResult.data.recommendations
-          updatedNode.aiMetadata.flags.needsReview = true
+          updatedNode.aiMetadata.flags = {
+            needsReview: critiqueResult.data.overallScore < 0.7,
+            needsUpdate: critiqueResult.data.issues.some((issue: any) => issue.severity === 'high'),
+            isStale: false,
+            hasErrors: critiqueResult.data.issues.some((issue: any) => issue.type === 'accuracy')
+          }
+          if (!affectedNodes.includes(updatedNode.id)) {
+            affectedNodes.push(updatedNode.id)
+          }
         }
       }
 
@@ -723,6 +757,7 @@ export class GraphEngine implements IGraphEngine {
         label: edgeData.label,
         metadata: {
           created: new Date(),
+          modified: new Date(),
           confidence: edgeData.metadata?.confidence || 0.8,
           aiGenerated: context.user.id === 'ai-system'
         },
@@ -1044,6 +1079,7 @@ export class GraphEngine implements IGraphEngine {
                 type: rel.relationshipType,
                 metadata: { 
                   created: new Date(),
+                  modified: new Date(),
                   confidence: rel.confidence, 
                   aiGenerated: true 
                 },

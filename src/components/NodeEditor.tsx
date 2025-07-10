@@ -24,8 +24,8 @@ import {
   Delete as DeleteIcon,
   Add as AddIcon
 } from '@mui/icons-material'
-import useGraphStore from '@/stores/graphStore'
-import { GraphNode } from '@/types/graph'
+import useEnhancedGraphStore from '@/stores/enhancedGraphStore'
+import { EnhancedGraphNode } from '@/types/enhanced-graph'
 
 interface NodeEditorProps {
   visible: boolean
@@ -33,8 +33,8 @@ interface NodeEditorProps {
 }
 
 const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
-  const { nodes, selectedNodes, updateNode, removeNode } = useGraphStore()
-  const [editingNode, setEditingNode] = useState<GraphNode | null>(null)
+  const { nodes, selectedNodes, updateNode, deleteNode } = useEnhancedGraphStore()
+  const [editingNode, setEditingNode] = useState<EnhancedGraphNode | null>(null)
   const [tempLabel, setTempLabel] = useState('')
   const [tempContent, setTempContent] = useState('')
   const [tempTags, setTempTags] = useState<string[]>([])
@@ -48,7 +48,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
     if (selectedNode) {
       setEditingNode(selectedNode)
       setTempLabel(selectedNode.label)
-      setTempContent(selectedNode.content || '')
+      setTempContent(selectedNode.richContent.markdown || '')
       setTempTags(selectedNode.metadata?.tags || [])
     } else {
       setEditingNode(null)
@@ -59,11 +59,21 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
     if (editingNode) {
       updateNode(editingNode.id, {
         label: tempLabel,
-        content: tempContent,
+        richContent: {
+          ...editingNode.richContent,
+          markdown: tempContent
+        },
         metadata: {
           ...editingNode.metadata,
           tags: tempTags,
           modified: new Date()
+        },
+        aiMetadata: {
+          ...editingNode.aiMetadata,
+          flags: {
+            ...editingNode.aiMetadata.flags,
+            needsReview: true // Mark for AI review after manual edit
+          }
         }
       })
       onClose()
@@ -73,7 +83,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
   const handleCancel = () => {
     if (selectedNode) {
       setTempLabel(selectedNode.label)
-      setTempContent(selectedNode.content || '')
+      setTempContent(selectedNode.richContent.markdown || '')
       setTempTags(selectedNode.metadata?.tags || [])
     }
     onClose()
@@ -81,7 +91,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
 
   const handleDelete = () => {
     if (editingNode && window.confirm('Are you sure you want to delete this node?')) {
-      removeNode(editingNode.id)
+      deleteNode(editingNode.id)
       onClose()
     }
   }
@@ -110,159 +120,138 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
   return (
     <Box
       sx={{
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 450,
-        maxHeight: '80vh',
-        zIndex: 1100,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
         bgcolor: 'background.paper',
-        borderRadius: 2,
-        boxShadow: (theme) => theme.shadows[12],
-        border: 1,
-        borderColor: 'divider'
+        overflow: 'hidden'
       }}
     >
-      <Card elevation={0}>
-        {/* Header */}
-        <Box
-          sx={{
-            p: 2,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <EditIcon />
-            <Typography variant="h6">
-              Edit Node
-            </Typography>
-          </Box>
+      {/* Content */}
+      <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto' }} onKeyDown={handleKeyPress}>
+        {/* Node Label */}
+        <TextField
+          fullWidth
+          label="Node Label"
+          value={tempLabel}
+          onChange={(e) => setTempLabel(e.target.value)}
+          variant="outlined"
+          size="small"
+          sx={{ mb: 2 }}
+          autoFocus
+        />
+
+        {/* Node Content */}
+        <TextField
+          fullWidth
+          label="Content"
+          value={tempContent}
+          onChange={(e) => setTempContent(e.target.value)}
+          variant="outlined"
+          multiline
+          rows={4}
+          size="small"
+          sx={{ mb: 2 }}
+        />
+
+        {/* Tags Section */}
+        <Typography variant="subtitle2" gutterBottom>
+          Tags
+        </Typography>
+        
+        {/* Existing Tags */}
+        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
+          {tempTags.map((tag, index) => (
+            <Chip
+              key={index}
+              label={tag}
+              onDelete={() => handleRemoveTag(tag)}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+          ))}
+        </Stack>
+
+        {/* Add New Tag */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <TextField
+            size="small"
+            placeholder="Add tag..."
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAddTag()
+              }
+            }}
+            sx={{ flexGrow: 1 }}
+          />
           <IconButton
             size="small"
-            onClick={handleCancel}
-            sx={{ color: 'inherit' }}
+            onClick={handleAddTag}
+            disabled={!newTag.trim()}
           >
-            <CancelIcon />
+            <AddIcon />
           </IconButton>
         </Box>
 
-        <CardContent sx={{ p: 3 }} onKeyDown={handleKeyPress}>
-          {/* Node Label */}
-          <TextField
-            fullWidth
-            label="Node Label"
-            value={tempLabel}
-            onChange={(e) => setTempLabel(e.target.value)}
-            variant="outlined"
-            sx={{ mb: 2 }}
-            autoFocus
-          />
-
-          {/* Node Content */}
-          <TextField
-            fullWidth
-            label="Content"
-            value={tempContent}
-            onChange={(e) => setTempContent(e.target.value)}
-            variant="outlined"
-            multiline
-            rows={4}
-            sx={{ mb: 2 }}
-          />
-
-          {/* Tags Section */}
-          <Typography variant="subtitle2" gutterBottom>
-            Tags
+        {/* Node Metadata */}
+        <Box sx={{ mt: 2, p: 2, bgcolor: alpha('#4da6ff', 0.05), borderRadius: 1 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Created: {editingNode.metadata.created.toLocaleDateString()}
           </Typography>
-          
-          {/* Existing Tags */}
-          <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
-            {tempTags.map((tag, index) => (
-              <Chip
-                key={index}
-                label={tag}
-                onDelete={() => handleRemoveTag(tag)}
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
-            ))}
-          </Stack>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Modified: {editingNode.metadata.modified.toLocaleDateString()}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Type: {editingNode.type}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Connections: {editingNode.connections.length}
+          </Typography>
+        </Box>
+      </Box>
 
-          {/* Add New Tag */}
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <TextField
-              size="small"
-              placeholder="Add tag..."
-              value={newTag}
-              onChange={(e) => setNewTag(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleAddTag()
-                }
-              }}
-              sx={{ flexGrow: 1 }}
-            />
-            <IconButton
-              size="small"
-              onClick={handleAddTag}
-              disabled={!newTag.trim()}
-            >
-              <AddIcon />
-            </IconButton>
-          </Box>
-
-          {/* Node Metadata */}
-          <Box sx={{ mt: 2, p: 2, bgcolor: alpha('primary.main', 0.05), borderRadius: 1 }}>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Created: {editingNode.metadata.created.toLocaleDateString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Modified: {editingNode.metadata.modified.toLocaleDateString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Type: {editingNode.type}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Connections: {editingNode.connections.length}
-            </Typography>
-          </Box>
-        </CardContent>
-
-        <CardActions sx={{ p: 3, pt: 0, justifyContent: 'space-between' }}>
+      {/* Actions */}
+      <Box sx={{ 
+        p: 2, 
+        borderTop: 1, 
+        borderColor: 'divider',
+        display: 'flex',
+        justifyContent: 'space-between',
+        flexShrink: 0
+      }}>
+        <Button
+          variant="outlined"
+          color="error"
+          size="small"
+          startIcon={<DeleteIcon />}
+          onClick={handleDelete}
+        >
+          Delete
+        </Button>
+        
+        <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
             variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={handleDelete}
+            size="small"
+            onClick={handleCancel}
           >
-            Delete
+            Cancel
           </Button>
-          
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              onClick={handleCancel}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={!tempLabel.trim()}
-            >
-              Save
-            </Button>
-          </Box>
-        </CardActions>
-      </Card>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={!tempLabel.trim()}
+          >
+            Save
+          </Button>
+        </Box>
+      </Box>
     </Box>
   )
 }

@@ -133,7 +133,7 @@ export class DiscoveryAgent implements AIAgent {
    */
   async execute(context: AgentContext): Promise<AgentResult> {
     const startTime = Date.now()
-    // const executionId = crypto.randomUUID() // TODO: Use for operation tracking
+    const executionId = crypto.randomUUID()
 
     try {
       // Extract discovery query from context
@@ -597,7 +597,13 @@ export class LinkingAgent implements AIAgent {
         success: true,
         data: {
           similarities,
-          relationships: rankedRelationships,
+          relationships: rankedRelationships.map(rel => ({
+            ...rel,
+            strength: rel.confidence, // Placeholder, actual strength from AI
+            bidirectional: rel.bidirectional,
+            context: rel.reasoning, // Using reasoning as context for now
+            keywords: rel.keywords || []
+          })),
           recommendations: rankedRelationships.slice(0, 5) // Top 5 recommendations
         },
         metadata: {
@@ -686,6 +692,9 @@ export class LinkingAgent implements AIAgent {
     confidence: number
     reasoning: string
     bidirectional: boolean
+    strength: number
+    context: string
+    keywords: string[]
   }[]> {
     const relationships = []
 
@@ -706,8 +715,11 @@ Determine:
 2. Confidence (0-1)
 3. Brief reasoning
 4. Whether relationship is bidirectional
+5. Strength (0-1)
+6. Context (short phrase)
+7. Keywords (array of strings)
 
-Format as JSON with type, confidence, reasoning, and bidirectional fields.`,
+Format as JSON with type, confidence, reasoning, bidirectional, strength, context, and keywords fields.`,
         format: 'json',
         temperature: 0.2,
         maxTokens: 500
@@ -723,7 +735,10 @@ Format as JSON with type, confidence, reasoning, and bidirectional fields.`,
           relationshipType: analysis.type || 'semantic',
           confidence: analysis.confidence || similar.similarity,
           reasoning: analysis.reasoning || 'Semantic similarity detected',
-          bidirectional: analysis.bidirectional || false
+          bidirectional: analysis.bidirectional || false,
+          strength: analysis.strength || similar.similarity,
+          context: analysis.context || '',
+          keywords: analysis.keywords || []
         })
       } catch {
         // Fallback relationship based on similarity
@@ -733,7 +748,10 @@ Format as JSON with type, confidence, reasoning, and bidirectional fields.`,
           relationshipType: 'semantic' as const,
           confidence: similar.similarity,
           reasoning: 'High semantic similarity detected',
-          bidirectional: false
+          bidirectional: false,
+          strength: similar.similarity,
+          context: '',
+          keywords: []
         })
       }
     }

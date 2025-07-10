@@ -1,4 +1,7 @@
 /**
+ * TODO: Replace this custom D3.js implementation with React Flow.
+ * See issues_and_improvements.md for more details.
+ *
  * Graph Canvas Component - Core visualization using D3.js
  * Implements interactive node-link graph with clustering
  */

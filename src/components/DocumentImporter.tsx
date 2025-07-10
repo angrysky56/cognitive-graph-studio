@@ -1,535 +1,579 @@
 /**
- * Document Importer Component
- * Handles file upload and AI-powered processing into graph nodes
+ * Enhanced Document Importer with Semantic Processing
+ * 
+ * Replaces the basic chunking approach with intelligent entity extraction
+ * and relationship discovery. This solves the "brain inspired 1" problem
+ * by creating meaningful, semantic node names.
+ * 
+ * @module EnhancedDocumentImporter
  */
 
 import React, { useState, useCallback } from 'react'
 import {
   Box,
-  Paper,
+  Card,
+  CardContent,
   Typography,
   Button,
   LinearProgress,
   Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  FormControl,
+  FormLabel,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  Slider,
+  Switch,
   Chip,
   List,
   ListItem,
   ListItemText,
-  ListItemIcon,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControlLabel,
-  Switch,
-  Slider,
-  Divider
+  ListItemSecondaryAction,
+  Divider,
+  Paper
 } from '@mui/material'
 import {
-  CloudUpload,
-  Description,
-  TableChart,
-  Image,
-  PictureAsPdf,
-  Delete,
-  PlayArrow,
-  Stop,
-  Settings,
-  AutoAwesome
+  CloudUpload as CloudUploadIcon,
+  ExpandMore as ExpandMoreIcon,
+  Visibility as VisibilityIcon,
+  Add as AddIcon,
+  Psychology as PsychologyIcon
 } from '@mui/icons-material'
 import { useDropzone } from 'react-dropzone'
-import useGraphStore from '@/stores/graphStore'
-import serviceManager from '@/services/service-manager-enhanced'
+import { EnhancedGraphNode, EnhancedGraphEdge } from '@/types/enhanced-graph'
+import { enhancedDocumentProcessor, ProcessingOptions, ProcessingResult } from '@/services/enhanced-document-processor'
 
-interface ProcessingJob {
-  id: string
-  file: File
-  status: 'pending' | 'processing' | 'completed' | 'error'
+interface EnhancedDocumentImporterProps {
+  onNodesCreated?: (nodes: EnhancedGraphNode[]) => void
+  onEdgesCreated?: (edges: EnhancedGraphEdge[]) => void
+  onImportComplete?: (result: ProcessingResult) => void
+}
+
+interface ProcessingState {
+  isProcessing: boolean
   progress: number
-  nodesCreated: number
+  stage: string
+  result?: ProcessingResult
   error?: string
-  preview?: string
 }
 
-interface ProcessingOptions {
-  chunkSize: number
-  createClusters: boolean
-  useAIAnalysis: boolean
-  extractRelationships: boolean
-  minChunkWords: number
-  maxChunkWords: number
-}
-
-const DocumentImporter: React.FC = () => {
-  const [jobs, setJobs] = useState<ProcessingJob[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [options, setOptions] = useState<ProcessingOptions>({
-    chunkSize: 500,
-    createClusters: true,
-    useAIAnalysis: true,
+const EnhancedDocumentImporter: React.FC<EnhancedDocumentImporterProps> = ({
+  onNodesCreated,
+  onEdgesCreated,
+  onImportComplete
+}) => {
+  const [processingState, setProcessingState] = useState<ProcessingState>({
+    isProcessing: false,
+    progress: 0,
+    stage: ''
+  })
+  
+  const [processingOptions, setProcessingOptions] = useState<ProcessingOptions>({
+    minEntityImportance: 0.3,
+    maxNodes: 50,
+    includePhrases: true,
     extractRelationships: true,
-    minChunkWords: 50,
-    maxChunkWords: 1000
+    language: 'en'
   })
 
-  const { addNode, addEdge } = useGraphStore()
+  const [processingMode, setProcessingMode] = useState<'semantic' | 'word-network'>('semantic')
+  const [previewResult, setPreviewResult] = useState<ProcessingResult | null>(null)
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newJobs = acceptedFiles.map(file => ({
-      id: crypto.randomUUID(),
-      file,
-      status: 'pending' as const,
-      progress: 0,
-      nodesCreated: 0
-    }))
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return
 
-    setJobs(prev => [...prev, ...newJobs])
-  }, [])
+    const file = acceptedFiles[0]
+    await processFile(file)
+  }, [processingOptions, processingMode])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'text/plain': ['.txt'],
-      'text/csv': ['.csv'],
-      'application/pdf': ['.pdf'],
-      'application/json': ['.json'],
       'text/markdown': ['.md'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
+      'application/pdf': ['.pdf'],
+      'text/html': ['.html']
     },
-    multiple: true
+    multiple: false
   })
 
-  const removeJob = (jobId: string) => {
-    setJobs(prev => prev.filter(job => job.id !== jobId))
-  }
-
-  const processAllJobs = async () => {
-    setIsProcessing(true)
-    
-    for (const job of jobs.filter(j => j.status === 'pending')) {
-      await processJob(job.id)
-    }
-    
-    setIsProcessing(false)
-  }
-
-  const processJob = async (jobId: string) => {
-    const updateJob = (updates: Partial<ProcessingJob>) => {
-      setJobs(prev => prev.map(job => 
-        job.id === jobId ? { ...job, ...updates } : job
-      ))
-    }
+  const processFile = async (file: File) => {
+    setProcessingState({
+      isProcessing: true,
+      progress: 0,
+      stage: 'Reading file...'
+    })
 
     try {
-      updateJob({ status: 'processing', progress: 10 })
+      // Read file content
+      const text = await readFileContent(file)
       
-      const job = jobs.find(j => j.id === jobId)
-      if (!job) return
+      setProcessingState(prev => ({
+        ...prev,
+        progress: 20,
+        stage: 'Analyzing text structure...'
+      }))
 
-      // Import the document processor
-      const { documentProcessor } = await import('@/services/document-processor')
+      // Process based on selected mode
+      let result: ProcessingResult
 
-      updateJob({ progress: 20 })
-
-      // Process the file using the enhanced document processor
-      const processingOptions = {
-        maxChunkWords: options.maxChunkWords,
-        minChunkWords: options.minChunkWords,
-        useAIEnhancement: options.useAIAnalysis,
-        extractEntities: true,
-        createRelationships: options.extractRelationships,
-        language: 'en'
-      }
-
-      const result = await documentProcessor.processFile(job.file, processingOptions)
-      
-      updateJob({ 
-        progress: 60, 
-        preview: result.summary 
-      })
-
-      // Create nodes from processed chunks
-      let nodesCreated = 0
-      const createdNodeIds: string[] = []
-
-      for (let i = 0; i < result.chunks.length; i++) {
-        const chunk = result.chunks[i]
+      if (processingMode === 'word-network') {
+        setProcessingState(prev => ({
+          ...prev,
+          progress: 40,
+          stage: 'Creating word co-occurrence network...'
+        }))
         
-        try {
-          const nodeId = await createNodeFromChunk(
-            chunk.content, 
-            job.file.name, 
-            i, 
-            result.suggestedTags,
-            result.nodeType
-          )
-          if (nodeId) {
-            createdNodeIds.push(nodeId)
-            nodesCreated++
-          }
-        } catch (error) {
-          console.warn('Failed to create node for chunk:', error)
-        }
-
-        updateJob({ 
-          progress: 60 + (i / result.chunks.length) * 30, 
-          nodesCreated 
-        })
+        result = await enhancedDocumentProcessor.processTextAsWordNetwork(text, 5)
+      } else {
+        setProcessingState(prev => ({
+          ...prev,
+          progress: 40,
+          stage: 'Extracting entities and concepts...'
+        }))
+        
+        result = await enhancedDocumentProcessor.processDocument(
+          text,
+          file.name,
+          processingOptions
+        )
       }
 
-      // Create relationships if enabled
-      if (options.extractRelationships && createdNodeIds.length > 1) {
-        await createRelationships(createdNodeIds, result.extractedEntities)
+      setProcessingState(prev => ({
+        ...prev,
+        progress: 80,
+        stage: 'Finalizing graph structure...'
+      }))
+
+      // Add positioning to nodes
+      const positionedNodes = result.nodes.map((node, index) => ({
+        ...node,
+        position: calculateNodePosition(index, result.nodes.length)
+      }))
+
+      const finalResult = {
+        ...result,
+        nodes: positionedNodes
       }
 
-      updateJob({ 
-        status: 'completed', 
-        progress: 100, 
-        nodesCreated 
+      setProcessingState({
+        isProcessing: false,
+        progress: 100,
+        stage: 'Complete!',
+        result: finalResult
       })
+
+      setPreviewResult(finalResult)
 
     } catch (error) {
-      updateJob({ 
-        status: 'error', 
-        error: error instanceof Error ? error.message : 'Processing failed'
+      setProcessingState({
+        isProcessing: false,
+        progress: 0,
+        stage: '',
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       })
     }
   }
 
-  const createNodeFromChunk = async (
-    content: string, 
-    filename: string, 
-    index: number,
-    suggestedTags: string[] = [],
-    nodeType: 'source' | 'concept' | 'idea' = 'source'
-  ): Promise<string | null> => {
-    try {
-      // Generate a descriptive label using AI if enabled
-      let label = `${filename} - Part ${index + 1}`
-      let enhancedContent = content
-
-      if (options.useAIAnalysis) {
-        try {
-          const aiResponse = await serviceManager.generateAIContent(
-            `Create a concise 3-6 word title for this content: "${content.slice(0, 300)}"`
-          )
-          
-          if (aiResponse.content) {
-            label = aiResponse.content.trim().replace(/['"]/g, '').slice(0, 60)
-          }
-
-          // Get AI insights for important chunks
-          if (content.length > 200) {
-            const insightResponse = await serviceManager.generateAIContent(
-              `Extract 2-3 key insights from: "${content.slice(0, 500)}"`
-            )
-            
-            if (insightResponse.content) {
-              enhancedContent = `${content}\n\n--- Key Insights ---\n${insightResponse.content}`
-            }
-          }
-        } catch (error) {
-          console.warn('AI analysis failed for chunk, using basic processing:', error)
-        }
+  const readFileContent = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      
+      reader.onload = (event) => {
+        const content = event.target?.result as string
+        resolve(content)
       }
-
-      // Create the node
-      const nodeId = crypto.randomUUID()
-      const node = {
-        id: nodeId,
-        label,
-        content: enhancedContent,
-        type: nodeType,
-        position: { 
-          x: Math.random() * 800, 
-          y: Math.random() * 600 
-        },
-        metadata: {
-          created: new Date(),
-          modified: new Date(),
-          tags: ['imported', ...suggestedTags, filename.split('.').pop() || 'document'].slice(0, 5),
-          color: nodeType === 'concept' ? '#ffca80' : nodeType === 'idea' ? '#80c7ff' : '#90ee90'
-        },
-        connections: [],
-        aiGenerated: false
+      
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'))
       }
+      
+      reader.readAsText(file)
+    })
+  }
 
-      addNode(node)
-
-      // Process with all available services
-      await serviceManager.processNewNode(node)
-
-      return nodeId
-    } catch (error) {
-      console.error('Failed to create node from chunk:', error)
-      return null
+  const calculateNodePosition = (index: number, total: number): { x: number; y: number } => {
+    // Distribute nodes in a spiral pattern
+    const angle = (index * 2 * Math.PI) / Math.max(total, 1)
+    const radius = 50 + (index * 300) / Math.max(total, 1)
+    
+    return {
+      x: 400 + radius * Math.cos(angle),
+      y: 300 + radius * Math.sin(angle)
     }
   }
 
-  const createRelationships = async (
-    nodeIds: string[], 
-    extractedEntities: string[] = []
-  ): Promise<void> => {
-    // Create relationships between adjacent nodes (document flow)
-    for (let i = 0; i < nodeIds.length - 1; i++) {
-      addEdge({
-        id: crypto.randomUUID(),
-        source: nodeIds[i],
-        target: nodeIds[i + 1],
-        type: 'temporal',
-        weight: 0.7,
-        metadata: {
-          created: new Date(),
-          confidence: 0.7,
-          aiGenerated: true
-        }
-      })
+  const handleImportNodes = () => {
+    if (!previewResult) return
+
+    if (onNodesCreated) {
+      onNodesCreated(previewResult.nodes)
+    }
+    
+    if (onEdgesCreated && previewResult.edges.length > 0) {
+      onEdgesCreated(previewResult.edges)
+    }
+    
+    if (onImportComplete) {
+      onImportComplete(previewResult)
     }
 
-    // Create thematic relationships for nodes with shared entities
-    if (extractedEntities.length > 0 && options.useAIAnalysis) {
-      try {
-        // Use AI to suggest semantic relationships
-        const relationshipPrompt = `Based on these entities: ${extractedEntities.join(', ')}, suggest which of these ${nodeIds.length} document chunks should be semantically connected. Return indices (0-${nodeIds.length-1}) as pairs like "0-2, 1-3".`
-        
-        const relationshipResponse = await serviceManager.generateAIContent(relationshipPrompt)
-        
-        if (relationshipResponse.content) {
-          const pairs = relationshipResponse.content.match(/\d+-\d+/g) || []
-          
-          pairs.slice(0, 5).forEach(pair => { // Limit to 5 relationships
-            const [sourceIdx, targetIdx] = pair.split('-').map(Number)
-            
-            if (sourceIdx < nodeIds.length && targetIdx < nodeIds.length && sourceIdx !== targetIdx) {
-              addEdge({
-                id: crypto.randomUUID(),
-                source: nodeIds[sourceIdx],
-                target: nodeIds[targetIdx],
-                type: 'semantic',
-                weight: 0.6,
-                metadata: {
-                  created: new Date(),
-                  confidence: 0.6,
-                  aiGenerated: true
+    // Reset state
+    setPreviewResult(null)
+    setProcessingState({
+      isProcessing: false,
+      progress: 0,
+      stage: ''
+    })
+  }
+
+  const renderProcessingOptions = () => (
+    <Accordion>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="subtitle1">Processing Options</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ space: 2 }}>
+          {/* Processing Mode */}
+          <FormControl component="fieldset" sx={{ mb: 3 }}>
+            <FormLabel component="legend">Processing Mode</FormLabel>
+            <RadioGroup
+              value={processingMode}
+              onChange={(e) => setProcessingMode(e.target.value as 'semantic' | 'word-network')}
+            >
+              <FormControlLabel
+                value="semantic"
+                control={<Radio />}
+                label={
+                  <Box>
+                    <Typography variant="body2">Semantic Entities</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Extract people, organizations, concepts, and relationships
+                    </Typography>
+                  </Box>
                 }
-              })
-            }
-          })
-        }
-      } catch (error) {
-        console.warn('Failed to create AI-suggested relationships:', error)
-      }
-    }
-  }
+              />
+              <FormControlLabel
+                value="word-network"
+                control={<Radio />}
+                label={
+                  <Box>
+                    <Typography variant="body2">Word Co-occurrence Network</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Create network based on word proximity (InfraNodus style)
+                    </Typography>
+                  </Box>
+                }
+              />
+            </RadioGroup>
+          </FormControl>
 
-  const getFileIcon = (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase()
-    switch (ext) {
-      case 'pdf': return <PictureAsPdf />
-      case 'csv': return <TableChart />
-      case 'jpg':
-      case 'png':
-      case 'gif': return <Image />
-      default: return <Description />
-    }
-  }
+          {/* Semantic Processing Options */}
+          {processingMode === 'semantic' && (
+            <>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body2" gutterBottom>
+                  Entity Importance Threshold: {processingOptions.minEntityImportance}
+                </Typography>
+                <Slider
+                  value={processingOptions.minEntityImportance || 0.3}
+                  onChange={(_, value) => setProcessingOptions(prev => ({
+                    ...prev,
+                    minEntityImportance: value as number
+                  }))}
+                  min={0.1}
+                  max={0.8}
+                  step={0.1}
+                  marks={[
+                    { value: 0.1, label: 'Low' },
+                    { value: 0.5, label: 'Medium' },
+                    { value: 0.8, label: 'High' }
+                  ]}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Higher values = fewer, more important entities
+                </Typography>
+              </Box>
 
-  const getStatusColor = (status: ProcessingJob['status']) => {
-    switch (status) {
-      case 'completed': return 'success'
-      case 'error': return 'error'
-      case 'processing': return 'warning'
-      default: return 'default'
-    }
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body2" gutterBottom>
+                  Maximum Nodes: {processingOptions.maxNodes}
+                </Typography>
+                <Slider
+                  value={processingOptions.maxNodes || 50}
+                  onChange={(_, value) => setProcessingOptions(prev => ({
+                    ...prev,
+                    maxNodes: value as number
+                  }))}
+                  min={10}
+                  max={100}
+                  step={5}
+                  marks={[
+                    { value: 10, label: '10' },
+                    { value: 50, label: '50' },
+                    { value: 100, label: '100' }
+                  ]}
+                />
+              </Box>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={processingOptions.extractRelationships}
+                    onChange={(e) => setProcessingOptions(prev => ({
+                      ...prev,
+                      extractRelationships: e.target.checked
+                    }))}
+                  />
+                }
+                label="Extract Relationships"
+                sx={{ mb: 2 }}
+              />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={processingOptions.includePhrases}
+                    onChange={(e) => setProcessingOptions(prev => ({
+                      ...prev,
+                      includePhrases: e.target.checked
+                    }))}
+                  />
+                }
+                label="Include Key Phrases"
+              />
+            </>
+          )}
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  )
+
+  const renderPreview = () => {
+    if (!previewResult) return null
+
+    return (
+      <Card sx={{ mt: 2 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <VisibilityIcon />
+            Processing Results
+          </Typography>
+
+          {/* Summary Stats */}
+          <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+            <Paper sx={{ p: 2, textAlign: 'center', minWidth: 100 }}>
+              <Typography variant="h4" color="primary">
+                {previewResult.nodes.length}
+              </Typography>
+              <Typography variant="caption">Nodes</Typography>
+            </Paper>
+            <Paper sx={{ p: 2, textAlign: 'center', minWidth: 100 }}>
+              <Typography variant="h4" color="primary">
+                {previewResult.edges.length}
+              </Typography>
+              <Typography variant="caption">Connections</Typography>
+            </Paper>
+            <Paper sx={{ p: 2, textAlign: 'center', minWidth: 100 }}>
+              <Typography variant="h4" color="primary">
+                {previewResult.topics.length}
+              </Typography>
+              <Typography variant="caption">Topics</Typography>
+            </Paper>
+          </Box>
+
+          {/* Summary */}
+          {previewResult.summary && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>Summary:</strong> {previewResult.summary}
+              </Typography>
+            </Alert>
+          )}
+
+          {/* Topics */}
+          {previewResult.topics.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Main Topics:
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {previewResult.topics.slice(0, 10).map((topic, index) => (
+                  <Chip key={index} label={topic} size="small" variant="outlined" />
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* Node Preview */}
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle2">
+                Extracted Nodes ({previewResult.nodes.length})
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <List dense>
+                {previewResult.nodes.slice(0, 10).map((node) => (
+                  <ListItem key={node.id}>
+                    <ListItemText
+                      primary={node.label}
+                      secondary={`Type: ${node.type} • ${node.richContent.markdown.slice(0, 100)}...`}
+                    />
+                    <ListItemSecondaryAction>
+                      <Chip label={node.type} size="small" />
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                ))}
+                {previewResult.nodes.length > 10 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ p: 2 }}>
+                    ... and {previewResult.nodes.length - 10} more nodes
+                  </Typography>
+                )}
+              </List>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Connections Preview */}
+          {previewResult.edges.length > 0 && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle2">
+                  Relationships ({previewResult.edges.length})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <List dense>
+                  {previewResult.edges.slice(0, 10).map((edge) => {
+                    const sourceNode = previewResult.nodes.find(n => n.id === edge.source)
+                    const targetNode = previewResult.nodes.find(n => n.id === edge.target)
+                    return (
+                      <ListItem key={edge.id}>
+                        <ListItemText
+                          primary={`${sourceNode?.label} → ${targetNode?.label}`}
+                          secondary={`Type: ${edge.type} • Weight: ${edge.weight.toFixed(2)}`}
+                        />
+                        <ListItemSecondaryAction>
+                          <Chip label={edge.type} size="small" variant="outlined" />
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    )
+                  })}
+                  {previewResult.edges.length > 10 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ p: 2 }}>
+                      ... and {previewResult.edges.length - 10} more connections
+                    </Typography>
+                  )}
+                </List>
+              </AccordionDetails>
+            </Accordion>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Action Buttons */}
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+            <Button
+              variant="contained"
+              onClick={handleImportNodes}
+              startIcon={<AddIcon />}
+              size="large"
+            >
+              Import to Graph
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setPreviewResult(null)}
+            >
+              Cancel
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <Box>
-      {/* Drop Zone */}
-      <Paper
-        {...getRootProps()}
-        sx={{
-          p: 4,
-          border: '2px dashed',
-          borderColor: isDragActive ? 'primary.main' : 'divider',
-          bgcolor: isDragActive ? 'action.hover' : 'background.paper',
-          cursor: 'pointer',
-          textAlign: 'center',
-          mb: 2,
-          transition: 'all 0.2s ease'
-        }}
-      >
-        <input {...getInputProps()} />
-        <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-        <Typography variant="h6" gutterBottom>
-          {isDragActive ? 'Drop files here' : 'Import Documents'}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Drag & drop files or click to browse
-        </Typography>
-        <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-          Supports: TXT, CSV, PDF, JSON, MD, DOCX
-        </Typography>
-      </Paper>
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PsychologyIcon />
+            Enhanced Document Import
+          </Typography>
+          
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Upload documents to automatically extract meaningful entities, concepts, and relationships.
+            Choose between semantic entity extraction or word co-occurrence networks.
+          </Typography>
 
-      {/* Processing Options */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <Button
-          variant="contained"
-          startIcon={<PlayArrow />}
-          onClick={processAllJobs}
-          disabled={isProcessing || jobs.filter(j => j.status === 'pending').length === 0}
-        >
-          Process All ({jobs.filter(j => j.status === 'pending').length})
-        </Button>
-        
-        <Button
-          variant="outlined"
-          startIcon={<Settings />}
-          onClick={() => setSettingsOpen(true)}
-        >
-          Options
-        </Button>
+          {/* Processing Options */}
+          {renderProcessingOptions()}
 
-        {isProcessing && (
-          <Chip 
-            icon={<AutoAwesome />} 
-            label="AI Processing..." 
-            color="primary" 
-            variant="outlined" 
-          />
-        )}
-      </Box>
+          <Divider sx={{ my: 2 }} />
 
-      {/* Job List */}
-      {jobs.length > 0 && (
-        <Paper sx={{ mb: 2 }}>
-          <List>
-            {jobs.map((job) => (
-              <ListItem key={job.id}>
-                <ListItemIcon>
-                  {getFileIcon(job.file.name)}
-                </ListItemIcon>
-                <ListItemText
-                  primary={job.file.name}
-                  secondary={
-                    <Box>
-                      <Typography variant="caption" display="block">
-                        {(job.file.size / 1024).toFixed(1)} KB
-                        {job.nodesCreated > 0 && ` • ${job.nodesCreated} nodes created`}
-                      </Typography>
-                      {job.status === 'processing' && (
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={job.progress} 
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-                      {job.error && (
-                        <Alert severity="error" sx={{ mt: 1 }}>
-                          {job.error}
-                        </Alert>
-                      )}
-                      {job.preview && (
-                        <Typography variant="caption" color="text.secondary">
-                          {job.preview}
-                        </Typography>
-                      )}
-                    </Box>
-                  }
-                />
-                <Chip 
-                  label={job.status} 
-                  color={getStatusColor(job.status)}
-                  size="small"
-                  sx={{ mr: 1 }}
-                />
-                <IconButton 
-                  onClick={() => removeJob(job.id)}
-                  disabled={job.status === 'processing'}
-                >
-                  <Delete />
-                </IconButton>
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      )}
-
-      {/* Settings Dialog */}
-      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Processing Options</DialogTitle>
-        <DialogContent>
-          <Box sx={{ py: 2 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={options.useAIAnalysis}
-                  onChange={(e) => setOptions(prev => ({ ...prev, useAIAnalysis: e.target.checked }))}
-                />
+          {/* Upload Area */}
+          <Box
+            {...getRootProps()}
+            sx={{
+              border: 2,
+              borderColor: isDragActive ? 'primary.main' : 'divider',
+              borderStyle: 'dashed',
+              borderRadius: 2,
+              p: 4,
+              textAlign: 'center',
+              cursor: 'pointer',
+              bgcolor: isDragActive ? 'primary.light' : 'background.default',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                borderColor: 'primary.main',
+                bgcolor: 'primary.light'
               }
-              label="Use AI Analysis for Enhanced Processing"
-            />
-            
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={options.extractRelationships}
-                  onChange={(e) => setOptions(prev => ({ ...prev, extractRelationships: e.target.checked }))}
-                />
-              }
-              label="Extract Relationships Between Chunks"
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={options.createClusters}
-                  onChange={(e) => setOptions(prev => ({ ...prev, createClusters: e.target.checked }))}
-                />
-              }
-              label="Create Semantic Clusters"
-            />
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography gutterBottom>
-              Chunk Size (words): {options.chunkSize}
+            }}
+          >
+            <input {...getInputProps()} />
+            <CloudUploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              {isDragActive ? 'Drop your document here' : 'Upload Document'}
             </Typography>
-            <Slider
-              value={options.chunkSize}
-              onChange={(_, value) => setOptions(prev => ({ ...prev, chunkSize: value as number }))}
-              min={100}
-              max={2000}
-              step={100}
-              marks={[
-                { value: 100, label: 'Small' },
-                { value: 500, label: 'Medium' },
-                { value: 1000, label: 'Large' },
-                { value: 2000, label: 'X-Large' }
-              ]}
-            />
-
-            <Typography gutterBottom sx={{ mt: 2 }}>
-              Min Chunk Words: {options.minChunkWords}
+            <Typography variant="body2" color="text.secondary">
+              Supports: .txt, .md, .pdf, .html
             </Typography>
-            <Slider
-              value={options.minChunkWords}
-              onChange={(_, value) => setOptions(prev => ({ ...prev, minChunkWords: value as number }))}
-              min={10}
-              max={200}
-              step={10}
-            />
           </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSettingsOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+
+          {/* Processing Progress */}
+          {processingState.isProcessing && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="body2" gutterBottom>
+                {processingState.stage}
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={processingState.progress} 
+                sx={{ height: 8, borderRadius: 4 }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                {processingState.progress.toFixed(0)}% complete
+              </Typography>
+            </Box>
+          )}
+
+          {/* Error Display */}
+          {processingState.error && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {processingState.error}
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Preview Results */}
+      {renderPreview()}
     </Box>
   )
 }
 
-export default DocumentImporter
+export default EnhancedDocumentImporter

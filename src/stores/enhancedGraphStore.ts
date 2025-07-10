@@ -346,26 +346,108 @@ const useEnhancedGraphStore = create<EnhancedGraphState>()(
           }
         },
 
-        updateEdge: async (_edgeId: string, _updates: Partial<EnhancedGraphEdge>, _userContext?: any) => {
-          // Similar implementation to updateNode
+        updateEdge: async (edgeId: string, updates: Partial<EnhancedGraphEdge>, userContext?: any) => {
           const state = get()
           if (!state.engine) {
             throw new Error('Engine not initialized')
           }
 
-          // Would implement edge update logic
-          throw new Error('Edge update not yet implemented')
+          set({ isLoading: true, currentOperation: 'Updating relationship...' })
+          
+          try {
+            // For now, find and update the edge directly in the store
+            // TODO: Implement in GraphEngine when edge update method is added
+            const existingEdge = state.edges.get(edgeId)
+            if (!existingEdge) {
+              throw new Error(`Edge ${edgeId} not found`)
+            }
+
+            const updatedEdge: EnhancedGraphEdge = {
+              ...existingEdge,
+              ...updates,
+              metadata: {
+                ...existingEdge.metadata,
+                ...updates.metadata,
+                modified: new Date()
+              }
+            }
+
+            // Update directly in store for now
+            set(state => {
+              const newEdges = new Map(state.edges)
+              newEdges.set(edgeId, updatedEdge)
+              return { edges: newEdges, isLoading: false, currentOperation: null }
+            })
+
+            return {
+              success: true,
+              data: { edge: updatedEdge },
+              metadata: {
+                operationId: crypto.randomUUID(),
+                duration: 100,
+                confidence: 1.0,
+                affectedNodes: [updatedEdge.source, updatedEdge.target],
+                affectedEdges: [edgeId],
+                agentsUsed: []
+              },
+              suggestions: ['Verify relationship changes are accurate']
+            }
+          } catch (error) {
+            set({ isLoading: false, currentOperation: null })
+            throw error
+          }
         },
 
-        deleteEdge: async (_edgeId: string, _userContext?: any) => {
-          // Similar implementation to deleteNode
+        deleteEdge: async (edgeId: string, userContext?: any) => {
           const state = get()
           if (!state.engine) {
             throw new Error('Engine not initialized')
           }
 
-          // Would implement edge deletion logic
-          throw new Error('Edge deletion not yet implemented')
+          set({ isLoading: true, currentOperation: 'Removing relationship...' })
+          
+          try {
+            // For now, delete the edge directly from the store
+            // TODO: Implement in GraphEngine when edge delete method is added
+            const existingEdge = state.edges.get(edgeId)
+            if (!existingEdge) {
+              throw new Error(`Edge ${edgeId} not found`)
+            }
+
+            // Remove from selections
+            const newSelectedEdges = new Set(state.selectedEdges)
+            newSelectedEdges.delete(edgeId)
+
+            // Remove edge
+            set(state => {
+              const newEdges = new Map(state.edges)
+              newEdges.delete(edgeId)
+              return { 
+                edges: newEdges, 
+                selectedEdges: newSelectedEdges,
+                hoveredEdge: state.hoveredEdge === edgeId ? null : state.hoveredEdge,
+                isLoading: false, 
+                currentOperation: null 
+              }
+            })
+
+            return {
+              success: true,
+              data: { edgeId },
+              metadata: {
+                operationId: crypto.randomUUID(),
+                duration: 100,
+                confidence: 1.0,
+                affectedNodes: [existingEdge.source, existingEdge.target],
+                affectedEdges: [edgeId],
+                agentsUsed: []
+              },
+              suggestions: ['Consider if this affects graph connectivity']
+            }
+          } catch (error) {
+            set({ isLoading: false, currentOperation: null })
+            throw error
+          }
         },
 
         // Search operations

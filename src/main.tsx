@@ -1,19 +1,19 @@
 /**
- * Main entry point for Cognitive Graph Studio - Fixed Version
- * Integrates enhanced components with proper error boundaries and performance monitoring
+ * Main entry point for Cognitive Graph Studio
+ * AI-powered knowledge graph visualization with Material UI
  */
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import AppFixed from './AppFixed'
+import App from './App'
 
-// Initialize the React application with enhanced error handling
+// Initialize the React application
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 )
 
 root.render(
   <React.StrictMode>
-    <AppFixed />
+    <App />
   </React.StrictMode>
 )

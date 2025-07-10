@@ -1,4 +1,11 @@
 /**
+ * AI Service UI Integration Functions
+ * 
+ * Provides direct functions that can be called from UI components
+ * to interact with the AI service for graph operations.
+ */
+
+/**
  * Core AI service for multi-LLM integration
  * 
  * Implements the "AI agents that can traverse and process information" concept
@@ -276,6 +283,104 @@ export class AIService implements IAIService {
     ])
 
     return this.cosineSimilarity(embedding1.embedding, embedding2.embedding)
+  }
+
+  /**
+   * UI Helper: Process user query for graph analysis
+   */
+  async processUserQuery(query: string, config?: Partial<LLMConfig>): Promise<LLMResponse> {
+    return this.generateText({
+      prompt: query,
+      systemPrompt: "You are a helpful assistant for knowledge graph analysis. Provide clear, actionable insights based on the user's question.",
+      temperature: 0.7,
+      maxTokens: 1000
+    }, config)
+  }
+
+  /**
+   * UI Helper: Generate node summary from content
+   */
+  async generateNodeSummary(content: string, config?: Partial<LLMConfig>): Promise<string> {
+    const response = await this.generateText({
+      prompt: `Summarize this content in 2-3 sentences, focusing on the key concepts and main ideas:\n\n${content}`,
+      temperature: 0.3,
+      maxTokens: 200
+    }, config)
+
+    return response.content
+  }
+
+  /**
+   * UI Helper: Extract key terms from text
+   */
+  async extractKeyTerms(text: string, maxTerms: number = 10, config?: Partial<LLMConfig>): Promise<string[]> {
+    const response = await this.generateText({
+      prompt: `Extract the ${maxTerms} most important key terms and concepts from this text. Return as a JSON array of strings:\n\n${text}`,
+      format: 'json',
+      temperature: 0.2,
+      maxTokens: 300
+    }, config)
+
+    try {
+      const terms = JSON.parse(response.content)
+      return Array.isArray(terms) ? terms.slice(0, maxTerms) : []
+    } catch {
+      // Fallback: extract terms manually
+      return text.split(/[,.\n]/)
+        .map(term => term.trim())
+        .filter(term => term.length > 2)
+        .slice(0, maxTerms)
+    }
+  }
+
+  /**
+   * UI Helper: Suggest relationship between two nodes
+   */
+  async suggestRelationship(
+    sourceLabel: string, 
+    sourceContent: string,
+    targetLabel: string, 
+    targetContent: string,
+    config?: Partial<LLMConfig>
+  ): Promise<{
+    type: 'semantic' | 'causal' | 'temporal' | 'hierarchical'
+    strength: number
+    reasoning: string
+  }> {
+    const response = await this.generateText({
+      prompt: `Analyze the relationship between these two concepts:
+
+Concept A: "${sourceLabel}"
+Content: ${sourceContent}
+
+Concept B: "${targetLabel}"  
+Content: ${targetContent}
+
+Determine:
+1. Relationship type (semantic, causal, temporal, hierarchical)
+2. Strength (0-1, where 1 is very strong relationship)
+3. Brief reasoning
+
+Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
+      format: 'json',
+      temperature: 0.3,
+      maxTokens: 300
+    }, config)
+
+    try {
+      const result = JSON.parse(response.content)
+      return {
+        type: result.type || 'semantic',
+        strength: Math.max(0, Math.min(1, result.strength || 0.5)),
+        reasoning: result.reasoning || 'AI-suggested relationship'
+      }
+    } catch {
+      return {
+        type: 'semantic',
+        strength: 0.5,
+        reasoning: 'Could not determine specific relationship type'
+      }
+    }
   }
 
   /**

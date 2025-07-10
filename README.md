@@ -12,6 +12,27 @@
 
 ![alt text](image.png)
 
+❯ ./switch-to-enhanced.sh
+🚀 Switching to Enhanced Cognitive Graph Studio...
+✅ Enhanced version activated!
+
+🎯 New Features:
+  • AI can now read and understand your graph
+  • Semantic document processing (no more 'brain inspired 1')
+  • Network analysis with graph metrics
+  • Intelligent connection suggestions
+  • Enhanced AI interaction panel
+
+📖 Quick Start:
+  1. npm run dev
+  2. Upload the demo-document.md file
+  3. Ask AI: 'Analyze my current graph'
+  4. Check the Analysis tab for network metrics
+
+🔄 To revert: cp src/main.tsx.backup src/main.tsx
+
+
+
 > *Architected following MVP Coding Agency standards with proper TypeScript conventions, clean separation of concerns, and comprehensive testability.*
 
 ### 🎨 **Enhanced Features**

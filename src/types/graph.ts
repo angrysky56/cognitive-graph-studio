@@ -15,6 +15,18 @@ export interface GraphNode {
     tags: string[]
     color?: string
     size?: number
+    // IdeaNode specific properties
+    confidence?: number // 0-1 confidence score
+    priority?: 'low' | 'medium' | 'high'
+    favorite?: boolean
+    status?: 'draft' | 'active' | 'reviewed'
+    // SourceNode specific properties
+    sourceType?: string // e.g., 'paper', 'article', 'book'
+    url?: string // external link
+    published?: Date
+    // Additional AI-related metadata
+    aiConfidence?: number
+    processingResults?: any
   }
   connections: string[] // Connected node IDs
   aiGenerated: boolean
@@ -38,8 +50,12 @@ export interface GraphEdge {
   label?: string
   metadata: {
     created: Date
-    confidence: number
-    aiGenerated: boolean
+    modified: Date
+    confidence?: number // 0-1 confidence score
+    aiGenerated?: boolean
+    bidirectional?: boolean
+    hierarchy?: 'parent' | 'child' | 'sibling'
+    depth?: number // hierarchical depth level
   }
 }
 

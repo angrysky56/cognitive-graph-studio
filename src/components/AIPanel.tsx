@@ -1,370 +1,442 @@
 /**
- * AI Panel Component - Right sidebar for AI integration
- * Supports Gemini, LM Studio, and Ollama - all free services
+ * Enhanced AI Panel with Graph Context Awareness
+ *
+ * Demonstrates the solution to the critical issue where AI couldn't read
+ * existing graph state. Now includes graph context in AI interactions.
+ *
+ * @module EnhancedAIPanel
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
   Box,
-  Typography,
+  Card,
+  CardContent,
   TextField,
   Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Paper,
+  Typography,
+  Switch,
+  FormControlLabel,
   Chip,
-  LinearProgress,
+  List,
+  ListItem,
+  ListItemIcon,
+  IconButton,
   Alert,
-  Tooltip,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Slider
+  CircularProgress,
+  Tooltip,
+  Divider
 } from '@mui/material'
 import {
-  Send,
-  Settings,
-  ExpandMore,
-  Psychology,
-  AutoAwesome,
-  Link as LinkIcon
+  Send as SendIcon,
+  Psychology as PsychologyIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  ExpandMore as ExpandMoreIcon,
+  Analytics as AnalyticsIcon,
+  Link as LinkIcon,
+  Lightbulb as LightbulbIcon,
+  AutoFixHigh as AutoFixHighIcon
 } from '@mui/icons-material'
-import useGraphStore from '@/stores/graphStore'
-import serviceManager from '@/services/service-manager-enhanced'
-import { AIProvider } from '@/types/ai'
+import { EnhancedGraphNode, EnhancedGraphEdge, EnhancedGraphCluster } from '@/types/enhanced-graph'
+import { GraphAwareAIService } from '@/services/graph-aware-ai-service'
+import { LLMConfig } from '@/services/ai-service'
 
 interface AIPanelProps {
-  servicesReady: boolean
-  serviceStatus: Map<string, any>
+  nodes: Map<string, EnhancedGraphNode>
+  edges: Map<string, EnhancedGraphEdge>
+  clusters: Map<string, EnhancedGraphCluster>
+  selectedNodes?: Set<string>
+  onNodeCreate?: (node: Partial<EnhancedGraphNode>) => void
+  aiConfig?: LLMConfig
 }
 
-const AIPanel: React.FC<AIPanelProps> = ({ servicesReady, serviceStatus }) => {
-  const [prompt, setPrompt] = useState('')
-  const [providers, setProviders] = useState<AIProvider[]>([])
-  const [activeProvider, setActiveProvider] = useState('gemini')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [lastResponse, setLastResponse] = useState('')
-  const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(1000)
-  const [error, setError] = useState<string | null>(null)
+interface ChatMessage {
+  id: string
+  type: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: Date
+  graphContext?: boolean
+  suggestions?: {
+    nodes?: Array<{ label: string; type: string; content: string }>
+    connections?: Array<{ source: string; target: string; type: string; reasoning: string }>
+  }
+}
 
-  const {
-    nodes,
-    selectedNodes,
-    addNode,
-    addEdge
-  } = useGraphStore()
-
-  useEffect(() => {
-    // Get providers from service manager when services are ready
-    if (servicesReady) {
-      const allProviders = serviceManager.getAIProviders()
-      setProviders(allProviders)
+const AIPanel: React.FC<AIPanelProps> = ({
+  nodes,
+  edges,
+  clusters,
+  selectedNodes = new Set(),
+  onNodeCreate,
+  aiConfig
+}) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      type: 'system',
+      content: '🧠 **Graph-Aware AI Assistant Ready!**\n\nI can now see and understand your knowledge graph! Try asking me:\n• "Analyze my current graph"\n• "What connections am I missing?"\n• "Summarize my knowledge structure"\n• "Suggest new nodes related to [topic]"',
+      timestamp: new Date()
     }
-  }, [servicesReady])
+  ])
+  const [input, setInput] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [includeGraphContext, setIncludeGraphContext] = useState(true)
+  const [showSuggestions, setShowSuggestions] = useState(true)
+  const [graphAwareAI] = useState(() => {
+    const ai = new GraphAwareAIService(aiConfig ? [aiConfig] : [])
+    return ai
+  })
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || !servicesReady) return
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
-    setIsGenerating(true)
-    setError(null)
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  // Update AI with current graph context
+  useEffect(() => {
+    graphAwareAI.updateGraphContext(nodes, edges, clusters)
+  }, [nodes, edges, clusters, graphAwareAI])
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleSendMessage = async () => {
+    if (!input.trim()) return
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: input,
+      timestamp: new Date()
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    setInput('')
+    setIsLoading(true)
 
     try {
-      const selectedNodeArray = Array.from(selectedNodes).map(id => nodes.get(id)).filter(Boolean)
-      const context = selectedNodeArray.length > 0 
-        ? `Context from selected nodes: ${selectedNodeArray.map(n => `${n!.label}: ${n!.content}`).join('\n')}`
-        : undefined
+      // Determine if this is a special command
+      const lowerInput = input.toLowerCase()
+      let response
 
-      const response = await serviceManager.generateAIContent(prompt.trim(), context)
-      setLastResponse(response.content)
-      
-      // Create new node with AI-generated content
-      if (response.content) {
-        await handleCreateNodeFromAI(response.content)
+      if (lowerInput.includes('analyze') && (lowerInput.includes('graph') || lowerInput.includes('network'))) {
+        // Graph analysis request
+        const analysis = await graphAwareAI.analyzeGraph('detailed')
+        response = {
+          content: analysis.response.content,
+          suggestions: {
+            nodes: analysis.suggestions.newNodes,
+            connections: analysis.suggestions.newConnections
+          }
+        }
+      } else if (lowerInput.includes('connection') && lowerInput.includes('suggest')) {
+        // Connection suggestion request
+        const connections = await graphAwareAI.suggestConnections()
+        response = {
+          content: `I found ${connections.length} potential connections based on semantic similarity:\n\n${connections.map(conn => `• **${conn.source}** → **${conn.target}** (${conn.type})\n  ${conn.reasoning}`).join('\n\n')}`,
+          suggestions: { connections: connections.map(c => ({ ...c, source: c.source, target: c.target })) }
+        }
+      } else if (lowerInput.includes('find') || lowerInput.includes('search')) {
+        // Search for relevant nodes
+        const query = input.replace(/find|search|for/gi, '').trim()
+        const relevantNodes = await graphAwareAI.findRelevantNodes(query)
+        response = {
+          content: `Found ${relevantNodes.length} nodes relevant to "${query}":\n\n${relevantNodes.map(result => `• **${result.node.label}** (${result.node.type})\n  Relevance: ${(result.relevanceScore * 100).toFixed(1)}% - ${result.reasoning}`).join('\n\n')}`
+        }
+      } else {
+        // General conversation with graph context
+        const aiResponse = await graphAwareAI.generateTextWithContext({
+          prompt: input,
+          includeGraphContext,
+          focusNodes: Array.from(selectedNodes),
+          maxTokens: 1000
+        })
+        response = { content: aiResponse.content }
       }
 
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: response.content,
+        timestamp: new Date(),
+        graphContext: includeGraphContext,
+        suggestions: response.suggestions
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+
+      // Handle suggestions
+      
+
+    } catch (error) {
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 2).toString(),
+        type: 'system',
+        content: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
     } finally {
-      setIsGenerating(false)
+      setIsLoading(false)
     }
   }
 
-  const handleCreateNodeFromAI = async (content: string) => {
-    const newNode = {
-      id: crypto.randomUUID(),
-      label: content.split(' ').slice(0, 3).join(' ') + '...',
-      content,
-      type: 'idea' as const,
-      position: { x: Math.random() * 400, y: Math.random() * 400 },
-      metadata: {
-        created: new Date(),
-        modified: new Date(),
-        tags: ['ai-generated'],
-        color: '#80c7ff'
-      },
-      connections: [],
-      aiGenerated: true
-    }
-
-    addNode(newNode)
-
-    // Process node with all available services
-    const processingResults = await serviceManager.processNewNode(newNode)
-    
-    // Connect to selected nodes
-    Array.from(selectedNodes).forEach(selectedId => {
-      addEdge({
-        id: crypto.randomUUID(),
-        source: selectedId,
-        target: newNode.id,
-        type: 'semantic',
-        weight: 1.0,
-        metadata: {
-          created: new Date(),
-          confidence: 0.8,
-          aiGenerated: true
-        }
-      })
-    })
-
-    // Create connections to related nodes if found
-    if (processingResults.relatedNodes) {
-      processingResults.relatedNodes.slice(0, 2).forEach(relatedNode => {
-        addEdge({
-          id: crypto.randomUUID(),
-          source: newNode.id,
-          target: relatedNode.nodeId,
-          type: 'semantic',
-          weight: 0.6,
-          metadata: {
-            created: new Date(),
-            confidence: 0.6,
-            aiGenerated: true
-          }
-        })
-      })
-    }
+  const handleQuickAction = async (action: string) => {
+    setInput(action)
+    // Small delay to show the input, then send
+    setTimeout(() => handleSendMessage(), 100)
   }
 
-  const handleExploreNode = async () => {
-    if (selectedNodes.size === 0) return
-
-    const selectedNode = nodes.get(Array.from(selectedNodes)[0])
-    if (!selectedNode) return
-
-    const explorePrompt = `Expand on this concept and suggest 3-5 related ideas: "${selectedNode.label}" - ${selectedNode.content}`
-    setPrompt(explorePrompt)
-  }
-
-  const handleConnectNodes = async () => {
-    if (selectedNodes.size < 2) return
-
-    const selectedNodeArray = Array.from(selectedNodes).map(id => nodes.get(id)).filter(Boolean)
-    const nodeLabels = selectedNodeArray.map(n => n!.label).join(', ')
-    
-    const connectPrompt = `What single concept connects these ideas: ${nodeLabels}? Provide a brief explanation.`
-    setPrompt(connectPrompt)
-  }
-
-  const handleProviderChange = (providerName: string) => {
-    setActiveProvider(providerName)
-    // Note: Service manager handles provider switching internally
-  }
-
-  const getProviderStatus = (provider: AIProvider) => {
-    switch (provider.status) {
-      case 'available':
-        return { color: 'success' as const, text: 'Connected' }
-      case 'error':
-        return { color: 'error' as const, text: 'Offline' }
-      case 'loading':
-        return { color: 'warning' as const, text: 'Connecting...' }
-      default:
-        return { color: 'default' as const, text: 'Unknown' }
-    }
-  }
-
-  const aiServiceStatus = serviceStatus.get('ai')
-
-  return (
-    <Box sx={{ 
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      p: 2
-    }}>
-      {/* Header */}
-      <Typography variant="h6" sx={{ mb: 2, color: 'secondary.main' }}>
-        AI Assistant
-      </Typography>
-
-      {/* Service Status */}
-      {!servicesReady && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Initializing AI services...
-        </Alert>
-      )}
-
-      {aiServiceStatus?.status === 'error' && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {aiServiceStatus.message}
-        </Alert>
-      )}
-
-      {/* Provider Selection */}
-      <FormControl fullWidth size="small" sx={{ mb: 2 }} disabled={!servicesReady}>
-        <InputLabel>AI Provider</InputLabel>
-        <Select
-          value={activeProvider}
-          label="AI Provider"
-          onChange={(e) => handleProviderChange(e.target.value)}
-        >
-          {providers.map((provider) => (
-            <MenuItem key={provider.name} value={provider.name}>
-              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                <Typography sx={{ flexGrow: 1 }}>
-                  {provider.displayName}
-                </Typography>
-                <Chip 
-                  size="small" 
-                  label={getProviderStatus(provider).text}
-                  color={getProviderStatus(provider).color}
-                />
-              </Box>
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-
-      {/* Quick Actions */}
-      <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Tooltip title="Explore selected node">
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<Psychology />}
-            onClick={handleExploreNode}
-            disabled={selectedNodes.size === 0 || !servicesReady}
-          >
-            Explore
-          </Button>
-        </Tooltip>
-        
-        <Tooltip title="Connect selected nodes">
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<LinkIcon />}
-            onClick={handleConnectNodes}
-            disabled={selectedNodes.size < 2 || !servicesReady}
-          >
-            Connect
-          </Button>
-        </Tooltip>
+  const renderMessage = (message: ChatMessage) => {
+    return (
+    <ListItem key={message.id} sx={{ flexDirection: 'column', alignItems: 'stretch', py: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+        <ListItemIcon sx={{ minWidth: 'auto', mr: 1 }}>
+          {message.type === 'user' ? '👤' : message.type === 'assistant' ? '🤖' : 'ℹ️'}
+        </ListItemIcon>
+        <Typography variant="caption" color="text.secondary">
+          {message.timestamp.toLocaleTimeString()}
+          {message.graphContext && (
+            <Chip
+              label="Graph Context"
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ ml: 1, height: 20 }}
+            />
+          )}
+        </Typography>
       </Box>
 
-      {/* Prompt Input */}
-      <TextField
-        fullWidth
-        multiline
-        rows={4}
-        placeholder="Describe what you want to explore or ask about your knowledge graph..."
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        sx={{ mb: 2 }}
-        disabled={isGenerating || !servicesReady}
-      />
+      <Box sx={{
+        bgcolor: message.type === 'user' ? 'primary.light' :
+                message.type === 'assistant' ? 'background.paper' : 'info.light',
+        color: message.type === 'user' ? 'primary.contrastText' : 'text.primary',
+        p: 2,
+        borderRadius: 2,
+        whiteSpace: 'pre-wrap',
+        border: 1,
+        borderColor: 'divider'
+      }}>
+        <Typography variant="body2" component="div">
+          {message.content}
+        </Typography>
+      </Box>
 
-      {/* Generate Button */}
-      <Button
-        fullWidth
-        variant="contained"
-        startIcon={isGenerating ? null : <Send />}
-        onClick={handleGenerate}
-        disabled={isGenerating || !prompt.trim() || !servicesReady}
-        sx={{ mb: 2 }}
-      >
-        {isGenerating ? (
+      {/* Render suggestions */}
+      {message.suggestions && showSuggestions && (
+        <Box sx={{ mt: 2 }}>
+          {message.suggestions.nodes && message.suggestions.nodes.length > 0 && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle2">
+                  <LightbulbIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Suggested Nodes ({message.suggestions.nodes.length})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                {message.suggestions.nodes.map((node, index) => (
+                  <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+                    <Typography variant="body2" fontWeight="bold">
+                      {node.label} ({node.type})
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {node.content}
+                    </Typography>
+                    {onNodeCreate && (
+                      <Button
+                        size="small"
+                        onClick={() => onNodeCreate({
+                          label: node.label,
+                          type: node.type as any,
+                          richContent: {
+                            markdown: node.content || '',
+                            keyTerms: [],
+                            relatedConcepts: [],
+                            sources: [],
+                            attachments: []
+                          },
+                          aiMetadata: { confidenceScore: 0, lastProcessed: new Date(), agentHistory: [], suggestions: [], flags: { needsReview: false, needsUpdate: false, isStale: false, hasErrors: false } },
+                          position3D: { x: 0, y: 0, z: 0 },
+                          similarities: new Map(),
+                          connections: [],
+                          aiGenerated: true,
+                          metadata: { created: new Date(), modified: new Date(), tags: [] }
+                        })}
+                        sx={{ mt: 0.5 }}
+                      >
+                        Add Node
+                      </Button>
+                    )}
+                  </Box>
+                ))}
+              </AccordionDetails>
+            </Accordion>
+          )}
+
+          {message.suggestions.connections && message.suggestions.connections.length > 0 && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle2">
+                  <LinkIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Suggested Connections ({message.suggestions.connections.length})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                {message.suggestions.connections.map((conn, index) => (
+                  <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+                    <Typography variant="body2" fontWeight="bold">
+                      {conn.source} → {conn.target}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Type: {conn.type} • {conn.reasoning}
+                    </Typography>
+                  </Box>
+                ))}
+              </AccordionDetails>
+            </Accordion>
+          )}
+        </Box>
+      )}
+    </ListItem>
+    )
+  }
+
+  const quickActions = [
+    'Analyze my current graph',
+    'What connections am I missing?',
+    'Summarize my knowledge structure',
+    'Find gaps in my knowledge',
+    'Suggest related concepts',
+    'Auto-cleanup structure'
+  ]
+
+  return (
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', p: 2 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PsychologyIcon />
+            Graph-Aware AI
+          </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <LinearProgress sx={{ width: 100 }} />
-            Generating...
+            <Tooltip title="Toggle suggestion display">
+              <IconButton
+                size="small"
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                color={showSuggestions ? 'primary' : 'default'}
+              >
+                {showSuggestions ? <VisibilityIcon /> : <VisibilityOffIcon />}
+              </IconButton>
+            </Tooltip>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={includeGraphContext}
+                  onChange={(e) => setIncludeGraphContext(e.target.checked)}
+                />
+              }
+              label="Graph Context"
+              sx={{ m: 0 }}
+            />
           </Box>
-        ) : (
-          'Generate Ideas'
-        )}
-      </Button>
+        </Box>
 
-      {/* Error Display */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+        {/* Graph Status */}
+        <Alert
+          severity="info"
+          icon={<AnalyticsIcon />}
+          sx={{ mb: 2 }}
+        >
+          <Typography variant="body2">
+            Connected to graph: {nodes.size} nodes, {edges.size} edges
+            {selectedNodes.size > 0 && ` • ${selectedNodes.size} selected`}
+          </Typography>
         </Alert>
-      )}
 
-      {/* Settings */}
-      <Accordion sx={{ mb: 2 }}>
-        <AccordionSummary expandIcon={<ExpandMore />}>
-          <Typography variant="subtitle2">
-            <Settings sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Generation Settings
+        {/* Quick Actions */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Quick Actions:
           </Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box sx={{ mb: 2 }}>
-            <Typography gutterBottom>
-              Temperature: {temperature}
-            </Typography>
-            <Slider
-              value={temperature}
-              onChange={(_, value) => setTemperature(value as number)}
-              min={0}
-              max={1}
-              step={0.1}
-              marks={[
-                { value: 0, label: 'Focused' },
-                { value: 1, label: 'Creative' }
-              ]}
-              disabled={!servicesReady}
-            />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {quickActions.map((action, index) => (
+              <Chip
+                key={index}
+                label={action}
+                size="small"
+                variant="outlined"
+                clickable
+                onClick={() => handleQuickAction(action)}
+                icon={<AutoFixHighIcon />}
+              />
+            ))}
           </Box>
-          
-          <Box>
-            <Typography gutterBottom>
-              Max Tokens: {maxTokens}
-            </Typography>
-            <Slider
-              value={maxTokens}
-              onChange={(_, value) => setMaxTokens(value as number)}
-              min={100}
-              max={2000}
-              step={100}
-              marks={[
-                { value: 100, label: 'Short' },
-                { value: 1000, label: 'Medium' },
-                { value: 2000, label: 'Long' }
-              ]}
-              disabled={!servicesReady}
-            />
-          </Box>
-        </AccordionDetails>
-      </Accordion>
+        </Box>
 
-      {/* Last Response */}
-      {lastResponse && (
-        <Paper sx={{ p: 2, flex: 1, overflow: 'auto' }}>
-          <Typography variant="subtitle2" sx={{ mb: 1, color: 'secondary.main' }}>
-            <AutoAwesome sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Last Generated Response
+        <Divider sx={{ mb: 2 }} />
+
+        {/* Messages */}
+        <Box
+          ref={messagesContainerRef}
+          sx={{
+            flexGrow: 1,
+            overflow: 'auto',
+            mb: 2,
+            maxHeight: 'calc(100vh - 400px)',
+            minHeight: '300px'
+          }}
+        >
+          <List sx={{ py: 0 }}>
+            {messages.map(renderMessage)}
+          </List>
+          <div ref={messagesEndRef} />
+        </Box>
+
+        {/* Input */}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Ask about your graph or request analysis..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+            disabled={isLoading}
+            multiline
+            maxRows={3}
+          />
+          <Button
+            variant="contained"
+            onClick={handleSendMessage}
+            disabled={isLoading || !input.trim()}
+            sx={{ minWidth: 'auto', px: 2 }}
+          >
+            {isLoading ? <CircularProgress size={20} /> : <SendIcon />}
+          </Button>
+        </Box>
+
+        {/* Context Info */}
+        {includeGraphContext && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+            🔍 AI can see: {nodes.size} concepts, {edges.size} connections, {clusters.size} clusters
           </Typography>
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-            {lastResponse}
-          </Typography>
-        </Paper>
-      )}
-    </Box>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

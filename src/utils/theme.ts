@@ -85,8 +85,40 @@ export const graphColors = {
 export const cognitiveTheme = createTheme({
   palette: {
     mode: 'dark',
-    ...palette,
-    surface: palette.surface
+    primary: {
+      main: '#4da6ff',      // Bright blue for primary actions
+      light: '#80c7ff',     // Light blue for hover states
+      dark: '#1976d2',      // Dark blue for emphasis
+      contrastText: '#ffffff'
+    },
+    secondary: {
+      main: '#ffca80',      // Warm orange for secondary elements
+      light: '#ffd6a5',     // Light orange
+      dark: '#ff9800',      // Dark orange
+      contrastText: '#000000'
+    },
+    background: {
+      default: '#0a0a0f',   // Deep dark blue
+      paper: '#161621',     // Slightly lighter for surfaces
+    },
+    surface: {
+      level1: '#1e1e2e',    // Level 1 elevation
+      level2: '#262640',    // Level 2 elevation
+      level3: '#2e2e52',    // Level 3 elevation
+    },
+    text: {
+      primary: '#e0e0e0',   // High contrast text
+      secondary: '#a0a0a0', // Medium contrast text
+      disabled: '#606060',  // Low contrast text
+    },
+    divider: alpha('#ffffff', 0.12),
+    action: {
+      active: '#ffffff',
+      hover: alpha('#ffffff', 0.08),
+      selected: alpha('#4da6ff', 0.16),
+      disabled: alpha('#ffffff', 0.3),
+      disabledBackground: alpha('#ffffff', 0.12),
+    }
   },
   typography: {
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
@@ -110,7 +142,7 @@ export const cognitiveTheme = createTheme({
     },
     caption: {
       fontSize: '0.875rem',
-      color: palette.text.secondary,
+      color: '#a0a0a0',
     }
   },
   shape: {
@@ -148,14 +180,14 @@ export const cognitiveTheme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          scrollbarColor: `${palette.text.disabled} ${palette.background.paper}`,
+          scrollbarColor: `#606060 #161621`,
           '&::-webkit-scrollbar, & *::-webkit-scrollbar': {
             backgroundColor: 'transparent',
             width: 8,
           },
           '&::-webkit-scrollbar-thumb, & *::-webkit-scrollbar-thumb': {
             borderRadius: 8,
-            backgroundColor: palette.text.disabled,
+            backgroundColor: '#606060',
             minHeight: 24,
           },
         },
@@ -175,15 +207,15 @@ export const cognitiveTheme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
-          backgroundColor: palette.background.paper,
+          backgroundColor: '#161621',
         },
       },
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          backgroundColor: palette.background.paper,
-          borderBottom: `1px solid ${palette.divider}`,
+          backgroundColor: '#161621',
+          borderBottom: `1px solid ${alpha('#ffffff', 0.12)}`,
         },
       },
     },
