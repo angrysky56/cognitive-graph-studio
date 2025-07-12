@@ -3,7 +3,7 @@
  * AI-powered knowledge graph visualization with Material UI
  */
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ThemeProvider, CssBaseline } from '@mui/material'
 import {
   Box,
@@ -35,13 +35,14 @@ import EnhancedAIPanel from '@/components/EnhancedAIPanel'
 import EnhancedDocumentImporter from '@/components/EnhancedDocumentImporter'
 import NetworkAnalysis from '@/components/NetworkAnalysis'
 import NodeEditorPanel from '@/components/NodeEditorPanel'
-import SettingsDialog from '@/components/SettingsDialog'
-import SavedGraphs from '@/components/SavedGraphs'
+import SettingsDialog from '@/components/SimpleSettingsDialog'
 import GraphLayoutControls, { LayoutAlgorithm, LayoutDirection } from '@/components/GraphLayoutControls'
+import TemporalLibrary from '@/components/TemporalLibrary'
 
 // Services and Stores
 import useEnhancedGraphStore from '@/stores/enhancedGraphStore'
 import { LLMConfig } from '@/services/ai-service'
+import { simpleAIProviderManager } from '@/services/simple-ai-provider-manager'
 import { GraphEngineConfig } from '@/core/GraphEngine'
 import { SavedGraph } from '@/services/graph-persistence-service'
 
@@ -80,6 +81,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0)
   const [aiService, setAiService] = useState<any>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [aiConfig, setAiConfig] = useState<LLMConfig | null>(null)
 
   // Panel collapse state
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
@@ -103,28 +105,29 @@ const App: React.FC = () => {
     loadGraph
   } = useEnhancedGraphStore()
 
-  const aiConfig = useMemo(() => ({
-    provider: 'gemini' as const,
-    apiKey: import.meta.env.VITE_GEMINI_API_KEY || 'demo-key',
-    model: 'gemini-1.5-flash',
-    temperature: 0.7,
-    maxTokens: 4000
-  }), [])
-
+  // Initialize AI provider manager
   useEffect(() => {
-    // Create AI service instance
-    import('@/services/ai-service').then(({ AIService }) => {
-      const service = new AIService([aiConfig])
-      setAiService(service)
+    const config = simpleAIProviderManager.getActiveConfig()
+    setAiConfig(config)
+    setAiService(simpleAIProviderManager.getAIService())
+    
+    // Subscribe to provider changes
+    const unsubscribe = simpleAIProviderManager.subscribe((newConfig) => {
+      setAiConfig(newConfig)
+      setAiService(simpleAIProviderManager.getAIService())
     })
-  }, [aiConfig])
+
+    return unsubscribe
+  }, [])
 
   useEffect(() => {
     const initialize = async () => {
+      if (!aiConfig) return
+
       const config: GraphEngineConfig = {
         aiService: {
-          providers: [aiConfig!],
-          defaultProvider: 'gemini'
+          providers: [aiConfig],
+          defaultProvider: aiConfig.provider
         },
         vectorService: {
           dimensions: 768,
@@ -218,7 +221,8 @@ const App: React.FC = () => {
 
   const handleSettingsSave = (config: LLMConfig) => {
     console.log('AI Config updated:', config)
-    // TODO: Implement dynamic AI config updates
+    // The provider manager will handle the configuration updates
+    // through the SettingsDialog's handleSave function
   }
 
   const handleGraphLoad = (graph: SavedGraph) => {
@@ -226,6 +230,12 @@ const App: React.FC = () => {
       loadGraph(graph)
       console.log('Graph loaded:', graph.metadata.title)
     }
+  }
+
+  const handleBookLoad = (bookId: string) => {
+    console.log('Temporal book selected:', bookId)
+    // TODO: Implement book loading logic
+    // This could open a special "book view" mode or load the most recent graph from the book
   }
 
   const handleLayoutChange = (algorithm: LayoutAlgorithm, direction?: LayoutDirection) => {
@@ -390,7 +400,13 @@ const App: React.FC = () => {
           {/* Graph Canvas - Center/Main Area */}
           {!leftPanelExpanded && !rightPanelExpanded && (
             <Box sx={{ flexGrow: 1, position: 'relative', minWidth: 0, height: '100%' }}>
-              <MyGraphCanvas layoutTrigger={layoutTrigger || undefined} />
+              <MyGraphCanvas 
+                layoutTrigger={layoutTrigger || undefined}
+                onNodeClick={(node) => {
+                  console.log('Node clicked:', node.label);
+                  // Node selection is already handled in the canvas, just prevent any navigation
+                }}
+              />
             </Box>
           )}
 
@@ -454,7 +470,7 @@ const App: React.FC = () => {
                     <Tab icon={<ImportIcon />} label="Import" iconPosition="start" />
                     <Tab icon={<AnalyticsIcon />} label="Analysis" iconPosition="start" />
                     <Tab icon={<LayoutIcon />} label="Layout" iconPosition="start" />
-                    <Tab icon={<SavedIcon />} label="Saved Graphs" iconPosition="start" />
+                    <Tab icon={<SavedIcon />} label="Library" iconPosition="start" />
                   </Tabs>
 
                   <Box sx={{
@@ -530,8 +546,8 @@ const App: React.FC = () => {
                   </TabPanel>
 
                   <TabPanel value={activeTab} index={4}>
-                    <SavedGraphs
-                      onGraphLoad={handleGraphLoad}
+                    <TemporalLibrary
+                      onBookLoad={handleBookLoad}
                     />
                   </TabPanel>
                 </Box>
@@ -545,7 +561,6 @@ const App: React.FC = () => {
           open={showSettings}
           onClose={handleSettingsClose}
           onSave={handleSettingsSave}
-          currentConfig={aiConfig || undefined}
         />
       </Box>
     </ThemeProvider>

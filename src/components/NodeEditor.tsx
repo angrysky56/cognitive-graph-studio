@@ -204,7 +204,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ visible, onClose }) => {
             Type: {editingNode.type}
           </Typography>
           <Typography variant="caption" color="text.secondary" display="block">
-            Connections: {editingNode.connections.length}
+            Connections: {editingNode.connections?.length || 0}
           </Typography>
         </Box>
       </Box>

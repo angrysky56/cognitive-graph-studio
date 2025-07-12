@@ -22,10 +22,10 @@ export interface ChromaVectorService {
 export class ChromaVectorServiceImpl implements ChromaVectorService {
   private collectionName = 'cognitive_graphs'
   private isInitialized = false
-  private config: VectorIndexConfig | null = null
+  private _config: VectorIndexConfig | null = null
 
   async initialize(config: VectorIndexConfig): Promise<void> {
-    this.config = config
+    this._config = config
 
     try {
       // Ensure collection exists

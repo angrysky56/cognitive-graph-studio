@@ -44,7 +44,7 @@ interface SemanticEdgeProps extends EdgeProps {
  * Supports bidirectional relationships and confidence scoring
  */
 const SemanticEdge: React.FC<SemanticEdgeProps> = ({
-  id,
+  id: _id,
   sourceX,
   sourceY,
   targetX,

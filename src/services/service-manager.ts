@@ -8,7 +8,7 @@
  * @module ServiceManager
  */
 
-import { CognitiveGraphService, IntegratedServiceConfig } from './service-integration'
+import { CognitiveGraphService } from './service-integration'
 import { AIService, LLMConfig } from './ai-service'
 import { VectorService } from './vector-service'
 
@@ -247,6 +247,31 @@ export class ServiceManager {
    */
   public getVectorService(): VectorService | undefined {
     return this.serviceInstances.get('vector')
+  }
+
+  /**
+   * Generate AI content using the configured AI service
+   */
+  public async generateAIContent(prompt: string): Promise<{content: string}> {
+    const aiService = this.getAIService()
+    if (!aiService) {
+      throw new Error('AI service not available')
+    }
+    
+    try {
+      const result = await aiService.generateText({
+        prompt,
+        maxTokens: 2000,
+        temperature: 0.7
+      })
+      
+      return {
+        content: result.content || ''
+      }
+    } catch (error) {
+      console.error('Failed to generate AI content:', error)
+      throw new Error(`AI content generation failed: ${(error as Error).message}`)
+    }
   }
 
   /**

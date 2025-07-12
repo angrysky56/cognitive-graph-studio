@@ -21,7 +21,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(_error: Error, errorInfo: React.ErrorInfo) {
     console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack)
     this.setState({ errorInfo })
   }

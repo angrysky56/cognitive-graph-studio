@@ -10,7 +10,7 @@
  * - Material UI theming integration
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -26,7 +26,6 @@ import {
   EdgeChange,
   BackgroundVariant,
   Panel,
-  OnSelectionChangeParams,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -185,6 +184,9 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   const theme = useTheme();
   const [currentLayout] = useState<LayoutAlgorithm>('dagre');
   const [layoutDirection] = useState<LayoutDirection>('TB');
+  
+  // Ref to prevent infinite loops during layout updates
+  const isUpdatingLayout = useRef(false);
 
   const {
     nodes: storeNodes,
@@ -194,9 +196,25 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
     updateNode,
     deleteNode,
     selectNode,
-    deselectNode,
     deleteEdge
   } = useEnhancedGraphStore();
+
+  // Stable callback functions to prevent re-renders
+  const handleNodeSelect = useCallback((nodeId: string, node: EnhancedGraphNode) => {
+    console.log('Node selected:', nodeId, node.label);
+    selectNode(nodeId);
+    onNodeClick?.(node);
+  }, [selectNode, onNodeClick]);
+
+  const handleNodeEdit = useCallback((nodeId: string) => {
+    console.log('Edit node via NodeEditorPanel:', nodeId);
+  }, []);
+
+  const handleNodeDelete = useCallback((nodeId: string, nodeLabel: string) => {
+    if (window.confirm(`Delete "${nodeLabel}"?`)) {
+      deleteNode(nodeId);
+    }
+  }, [deleteNode]);
 
   // Convert store data to React Flow format - enhanced with callbacks
   const convertToReactFlowNodes = useCallback((graphNodes: Map<string, EnhancedGraphNode>): Node[] => {
@@ -210,23 +228,16 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         metadata: node.metadata,
         aiGenerated: node.aiMetadata?.discoverySource?.includes('ai') || false,
         type: node.type,
-        // Add interaction callbacks for DefaultNode (selection only)
-        onClick: () => {
-          selectNode(node.id);
-          onNodeClick?.(node);
-        },
-        onEdit: () => {
-          // Node editing is handled by the dedicated NodeEditorPanel
-          console.log('Edit node via NodeEditorPanel:', node.id);
-        },
-        onDelete: () => {
-          if (window.confirm(`Delete "${node.label}"?`)) {
-            deleteNode(node.id);
-          }
-        },
+        // Interaction callbacks for DefaultNode components (if needed by custom node types)
+        onEdit: () => handleNodeEdit(node.id),
+        onDelete: () => handleNodeDelete(node.id, node.label),
       },
     }));
-  }, [selectNode, onNodeClick, deleteNode]);
+  }, [handleNodeEdit, handleNodeDelete]);
+
+  const handleEdgeClick = useCallback((edge: EnhancedGraphEdge) => {
+    onEdgeClick?.(edge);
+  }, [onEdgeClick]);
 
   const convertToReactFlowEdges = useCallback((graphEdges: Map<string, EnhancedGraphEdge>): Edge[] => {
     return Array.from(graphEdges.values()).map((edge) => ({
@@ -241,7 +252,7 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         semantics: edge.semantics,
         visual: edge.visual,
         discovery: edge.discovery,
-        onClick: () => onEdgeClick?.(edge),
+        onClick: () => handleEdgeClick(edge),
       },
       label: edge.label,
       animated: edge.visual.animated,
@@ -250,7 +261,7 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         strokeWidth: Math.max(1, edge.weight * 2),
       },
     }));
-  }, [onEdgeClick]);
+  }, [handleEdgeClick]);
 
   // Initialize React Flow nodes and edges
   const initialNodes = useMemo(() =>
@@ -273,14 +284,14 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
       setNodes(convertToReactFlowNodes(storeNodes));
     }, 50);
     return () => clearTimeout(timeoutId);
-  }, [storeNodes, convertToReactFlowNodes, setNodes]);
+  }, [storeNodes, convertToReactFlowNodes]); // Re-added convertToReactFlowNodes since it's now stable
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       setEdges(convertToReactFlowEdges(storeEdges));
     }, 50);
     return () => clearTimeout(timeoutId);
-  }, [storeEdges, convertToReactFlowEdges, setEdges]);
+  }, [storeEdges, convertToReactFlowEdges]); // Re-added convertToReactFlowEdges since it's now stable
 
   // Handle connection creation
   const onConnect = useCallback((params: Edge | Connection) => {
@@ -324,12 +335,14 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
 
-    // Sync position changes back to store
-    changes.forEach((change) => {
-      if (change.type === 'position' && change.position) {
-        updateNode(change.id, { position: change.position });
-      }
-    });
+    // Only sync position changes back to store if not updating layout
+    if (!isUpdatingLayout.current) {
+      changes.forEach((change) => {
+        if (change.type === 'position' && change.position) {
+          updateNode(change.id, { position: change.position });
+        }
+      });
+    }
   }, [onNodesChange, updateNode]);
 
   // Handle edge changes
@@ -346,43 +359,50 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
 
   // Apply layout algorithm
   const applyLayout = useCallback(async (algorithm: LayoutAlgorithm, direction?: LayoutDirection) => {
-    const layoutConfig = {
-      ...defaultLayoutConfig,
-      direction: direction || layoutDirection,
-    };
+    try {
+      isUpdatingLayout.current = true; // Prevent store sync during layout
+      
+      const layoutConfig = {
+        ...defaultLayoutConfig,
+        direction: direction || layoutDirection,
+      };
 
-    let layoutedElements;
+      let layoutedElements;
 
-    switch (algorithm) {
-      case 'circular':
-        layoutedElements = getCircularLayout(nodes, edges, width / 2, height / 2);
-        break;
-      case 'grid':
-        layoutedElements = getGridLayout(nodes, edges, 4, 250);
-        break;
-      case 'radial':
-        layoutedElements = getRadialLayout(nodes, edges, width / 2, height / 2);
-        break;
-      case 'tree':
-        layoutedElements = getTreeLayout(nodes, edges);
-        break;
-      case 'force':
-        layoutedElements = await getForceLayout(nodes, edges, width, height);
-        break;
-      case 'dagre':
-      default:
-        layoutedElements = getLayoutedElements(nodes, edges, layoutConfig);
-        break;
+      switch (algorithm) {
+        case 'circular':
+          layoutedElements = getCircularLayout(nodes, edges, width / 2, height / 2);
+          break;
+        case 'grid':
+          layoutedElements = getGridLayout(nodes, edges, 4, 250);
+          break;
+        case 'radial':
+          layoutedElements = getRadialLayout(nodes, edges, width / 2, height / 2);
+          break;
+        case 'tree':
+          layoutedElements = getTreeLayout(nodes, edges);
+          break;
+        case 'force':
+          layoutedElements = await getForceLayout(nodes, edges, width, height);
+          break;
+        case 'dagre':
+        default:
+          layoutedElements = getLayoutedElements(nodes, edges, layoutConfig);
+          break;
+      }
+
+      setNodes(layoutedElements.nodes);
+      setEdges(layoutedElements.edges);
+
+      // Reset flag after a delay to allow React Flow to settle
+      setTimeout(() => {
+        isUpdatingLayout.current = false;
+      }, 100);
+    } catch (error) {
+      console.error('Layout application failed:', error);
+      isUpdatingLayout.current = false;
     }
-
-    setNodes(layoutedElements.nodes);
-    setEdges(layoutedElements.edges);
-
-    // Update store with new positions
-    layoutedElements.nodes.forEach((node) => {
-      updateNode(node.id, { position: node.position });
-    });
-  }, [nodes, edges, width, height, layoutDirection, setNodes, setEdges, updateNode]);
+  }, [nodes, edges, width, height, layoutDirection]);
 
   // Respond to external layout trigger changes
   useEffect(() => {
@@ -418,43 +438,47 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
 
   // Handle node clicks
   const handleNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
-    // React Flow will handle the selection, we just prevent any navigation
+    // Prevent default to avoid conflicts with selection
     event.preventDefault();
     event.stopPropagation();
-
-    // Trigger the node's onClick if it exists
-    if (node.data.onClick) {
-      node.data.onClick();
+    
+    console.log('React Flow node clicked:', node.id);
+    
+    // Find the corresponding enhanced node from store and call our selection handler
+    const storeNodes = useEnhancedGraphStore.getState().nodes;
+    const enhancedNode = storeNodes.get(node.id);
+    if (enhancedNode) {
+      handleNodeSelect(node.id, enhancedNode);
     }
-  }, []);
+  }, [handleNodeSelect]);
 
-  // Handle React Flow selection changes - no dependencies on state
-  const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    // Get current selected nodes from store
-    const currentSelected = useEnhancedGraphStore.getState().selectedNodes;
-    const newSelectedNodeIds = new Set(params.nodes.map(n => n.id));
+  // Handle React Flow selection changes - DISABLED to fix node selection bug
+  // const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
+  //   // Get current selected nodes from store
+  //   const currentSelected = useEnhancedGraphStore.getState().selectedNodes;
+  //   const newSelectedNodeIds = new Set(params.nodes.map(n => n.id));
 
-    // Update store selection to match React Flow
-    newSelectedNodeIds.forEach(nodeId => {
-      if (!currentSelected.has(nodeId)) {
-        selectNode(nodeId);
-      }
-    });
+  //   // Update store selection to match React Flow
+  //   newSelectedNodeIds.forEach(nodeId => {
+  //     if (!currentSelected.has(nodeId)) {
+  //       selectNode(nodeId);
+  //     }
+  //   });
 
-    // Remove nodes that are no longer selected
-    currentSelected.forEach(nodeId => {
-      if (!newSelectedNodeIds.has(nodeId)) {
-        deselectNode(nodeId);
-      }
-    });
-  }, [selectNode, deselectNode]);
+  //   // Remove nodes that are no longer selected
+  //   currentSelected.forEach(nodeId => {
+  //     if (!newSelectedNodeIds.has(nodeId)) {
+  //       deselectNode(nodeId);
+  //     }
+  //   });
+  // }, [selectNode, deselectNode]);
 
   // Apply initial layout
   useEffect(() => {
-    if (nodes.length > 0) {
+    if (nodes.length > 0 && nodes.length <= 3) { // Only auto-layout for small graphs
       applyLayout(currentLayout);
     }
-  }, [nodes.length, applyLayout, currentLayout]);
+  }, [nodes.length, currentLayout]); // Removed applyLayout dependency to prevent re-layouts
 
   return (
     <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -466,10 +490,19 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         onConnect={onConnect}
         onPaneClick={handlePaneClick}
         onNodeClick={handleNodeClick}
-        onSelectionChange={handleSelectionChange}
+        // onSelectionChange={handleSelectionChange} // DISABLED - using onNodeClick instead
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        fitViewOptions={{
+          padding: 0.1, // 10% padding around the graph
+          minZoom: 0.1,
+          maxZoom: 2,
+          includeHiddenNodes: false
+        }}
+        minZoom={0.1}
+        maxZoom={2}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         attributionPosition="bottom-left"
         style={{
           background: theme.palette.background.default,

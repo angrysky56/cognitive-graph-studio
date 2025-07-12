@@ -3,6 +3,7 @@
  * Advanced file parsing and AI-powered content extraction
  */
 
+import * as pdfjsLib from 'pdfjs-dist'
 import { EnhancedGraphNode } from '@/types/enhanced-graph'
 import { serviceManager } from './service-manager'
 
@@ -126,7 +127,7 @@ class DocumentProcessingService {
       reader.onload = async (e) => {
         const arrayBuffer = e.target?.result as ArrayBuffer
         try {
-          const pdf = await pdfjs.getDocument(arrayBuffer).promise
+          const pdf = await pdfjsLib.getDocument(arrayBuffer).promise
           let fullText = ''
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i)
@@ -184,7 +185,7 @@ class DocumentProcessingService {
   private async parseCSV(
     content: string, 
     filename: string, 
-    options: ProcessingOptions
+    _options: ProcessingOptions
   ): Promise<DocumentChunk[]> {
     const lines = content.split('\n').filter(line => line.trim())
     
@@ -424,8 +425,8 @@ class DocumentProcessingService {
         if (entityResponse.content) {
           extractedEntities = entityResponse.content
             .split(/[,\n]/)
-            .map(e => e.trim())
-            .filter(e => e.length > 2)
+            .map((e: string) => e.trim())
+            .filter((e: string) => e.length > 2)
             .slice(0, 10)
         }
       }
@@ -435,7 +436,7 @@ class DocumentProcessingService {
       const tagResponse = await serviceManager.generateAIContent(tagPrompt)
       
       const suggestedTags = tagResponse.content
-        ? tagResponse.content.split(/[,\n]/).map(t => t.trim()).filter(t => t.length > 0).slice(0, 5)
+        ? tagResponse.content.split(/[,\n]/).map((t: string) => t.trim()).filter((t: string) => t.length > 0).slice(0, 5)
         : [this.getFileExtension(filename)]
 
       // Determine node type based on content

@@ -21,7 +21,6 @@ import {
   Edit,
   Delete,
   OpenInNew,
-  LinkOff,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { GraphNode } from '@/types/graph';

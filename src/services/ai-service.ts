@@ -154,7 +154,6 @@ export class AIService implements IAIService {
       `AI generation failed after ${this.config.retryAttempts} attempts. Last error: ${lastError?.message}`
     )
   }
-
   /**
    * Generate embeddings with caching for performance.
    */
@@ -203,9 +202,16 @@ export class AIService implements IAIService {
       switch (providerName) {
         case 'gemini':
           return await this.testGeminiConnection(provider, startTime)
-        // Add other provider tests here
+        case 'anthropic':
+          return await this.testAnthropicConnection(provider, startTime)
+        case 'openai':
+          return await this.testOpenAIConnection(provider, startTime)
+        case 'local-ollama':
+          return await this.testOllamaConnection(provider, startTime)
+        case 'local-lm-studio':
+          return await this.testLMStudioConnection(provider, startTime)
         default:
-          // Fallback for other providers
+          // Fallback test
           await this.generateText({ prompt: 'test', maxTokens: 1 }, { provider: providerName })
           return { success: true, latency: Date.now() - startTime }
       }
@@ -219,33 +225,6 @@ export class AIService implements IAIService {
   }
 
   /**
-   * Test Gemini API connection using the v1 endpoint.
-   */
-  private async testGeminiConnection(
-    provider: LLMConfig,
-    startTime: number
-  ): Promise<ConnectionTestResult> {
-    if (!provider.apiKey) {
-      return { success: false, latency: 0, error: 'API key not configured' }
-    }
-
-    const response = await this.fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1/models?key=${provider.apiKey}`,
-      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
-      this.config.timeoutMs
-    )
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`HTTP ${response.status}: ${errorText}`)
-    }
-
-    const data = await response.json()
-    const models = data.models?.map((m: any) => m.name) || []
-    return { success: true, latency: Date.now() - startTime, models }
-  }
-
-  /**
    * Get available models for a given provider.
    */
   async getAvailableModels(provider: LLMProvider): Promise<string[]> {
@@ -254,20 +233,39 @@ export class AIService implements IAIService {
       throw new Error(`Provider ${provider} not configured`)
     }
 
-    switch (provider) {
-      case 'gemini':
-        return ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro']
-      case 'openai':
-        return ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo']
-      case 'anthropic':
-        return ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']
-      case 'local-ollama':
-        return this.getOllamaModels(providerConfig)
-      case 'local-lm-studio':
-        return this.getLMStudioModels(providerConfig)
-      default:
-        return []
+    try {
+      switch (provider) {
+        case 'gemini':
+          return await this.getGeminiModels(providerConfig)
+        case 'openai':
+          return await this.getOpenAIModels(providerConfig)
+        case 'anthropic':
+          return await this.getAnthropicModels(providerConfig)
+        case 'local-ollama':
+          return await this.getOllamaModels(providerConfig)
+        case 'local-lm-studio':
+          return await this.getLMStudioModels(providerConfig)
+        default:
+          return []
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch models for ${provider}:`, error)
+      return this.getFallbackModels(provider)
     }
+  }
+
+  /**
+   * Get fallback models when API fetch fails
+   */
+  private getFallbackModels(provider: LLMProvider): string[] {
+    const fallbacks = {
+      gemini: ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro'],
+      openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+      anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
+      'local-ollama': ['qwen2.5:latest', 'llama3.2:latest', 'mistral:latest'],
+      'local-lm-studio': ['local-model']
+    }
+    return fallbacks[provider] || []
   }
 
   /**
@@ -321,7 +319,6 @@ export class AIService implements IAIService {
       const terms = JSON.parse(response.content)
       return Array.isArray(terms) ? terms.slice(0, maxTerms) : []
     } catch {
-      // Fallback: extract terms manually
       return text.split(/[,.\n]/)
         .map(term => term.trim())
         .filter(term => term.length > 2)
@@ -396,8 +393,10 @@ export class AIService implements IAIService {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
+  // ===== GEMINI IMPLEMENTATION =====
+
   /**
-   * Private method: Generate text using the corrected Gemini API v1beta endpoint.
+   * Generate text using Gemini API
    */
   private async generateGeminiText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`
@@ -439,13 +438,90 @@ export class AIService implements IAIService {
           output: data.usageMetadata?.candidatesTokenCount ?? 0,
           total: data.usageMetadata?.totalTokenCount ?? 0,
         },
-        latency: 0, // Will be set by the caller
+        latency: 0,
       },
     }
   }
 
   /**
-   * Private method: Generate text using OpenAI API
+   * Test Gemini connection
+   */
+  private async testGeminiConnection(provider: LLMConfig, startTime: number): Promise<ConnectionTestResult> {
+    if (!provider.apiKey) {
+      return { success: false, latency: 0, error: 'API key not configured' }
+    }
+
+    const response = await this.fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1/models?key=${provider.apiKey}`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+      this.config.timeoutMs
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`HTTP ${response.status}: ${errorText}`)
+    }
+
+    const data = await response.json()
+    const models = data.models?.map((m: any) => m.name) || []
+    return { success: true, latency: Date.now() - startTime, models }
+  }
+
+  /**
+   * Get available models from Gemini
+   */
+  private async getGeminiModels(config: LLMConfig): Promise<string[]> {
+    try {
+      const response = await this.fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1/models?key=${config.apiKey}`,
+        { method: 'GET' },
+        5000
+      )
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      const data = await response.json()
+      return data.models
+        ?.filter((model: any) => model.name.includes('generateContent'))
+        ?.map((model: any) => model.name.replace('models/', ''))
+        ?.sort() || this.getFallbackModels('gemini')
+    } catch {
+      return this.getFallbackModels('gemini')
+    }
+  }
+
+  /**
+   * Generate embeddings using Gemini API
+   */
+  private async generateGeminiEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
+    const model = request.model ?? 'models/text-embedding-004'
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:embedContent?key=${config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: { parts: [{ text: request.text }] }
+      })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(`Gemini Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
+    }
+
+    return {
+      embedding: data.embedding.values,
+      dimensions: data.embedding.values.length,
+      model,
+      tokens: request.text.split(' ').length
+    }
+  }
+
+  // ===== OPENAI IMPLEMENTATION =====
+
+  /**
+   * Generate text using OpenAI API
    */
   private async generateOpenAIText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -488,15 +564,187 @@ export class AIService implements IAIService {
   }
 
   /**
-   * Private method: Generate text using Anthropic API
+   * Test OpenAI connection
    */
-  private async generateAnthropicText(_request: LLMRequest, _config: LLMConfig): Promise<LLMResponse> {
-    // Implementation for Anthropic API
-    throw new Error('Anthropic implementation pending')
+  private async testOpenAIConnection(provider: LLMConfig, startTime: number): Promise<ConnectionTestResult> {
+    if (!provider.apiKey) {
+      return { success: false, latency: 0, error: 'API key not configured' }
+    }
+
+    try {
+      const response = await this.fetchWithTimeout(
+        'https://api.openai.com/v1/models',
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        5000
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+
+      return { success: true, latency: Date.now() - startTime }
+    } catch (error) {
+      return {
+        success: false,
+        latency: Date.now() - startTime,
+        error: (error as Error).message
+      }
+    }
   }
 
   /**
-   * Private method: Generate text using Ollama local server
+   * Get available models from OpenAI
+   */
+  private async getOpenAIModels(config: LLMConfig): Promise<string[]> {
+    try {
+      const response = await this.fetchWithTimeout(
+        'https://api.openai.com/v1/models',
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        5000
+      )
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      const data = await response.json()
+      return data.data
+        ?.filter((model: any) => model.id.includes('gpt'))
+        ?.map((model: any) => model.id)
+        ?.sort() || this.getFallbackModels('openai')
+    } catch {
+      return this.getFallbackModels('openai')
+    }
+  }
+
+  /**
+   * Generate embeddings using OpenAI API
+   */
+  private async generateOpenAIEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
+    const model = request.model ?? 'text-embedding-3-small'
+
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        input: request.text
+      })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(`OpenAI Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
+    }
+
+    return {
+      embedding: data.data[0].embedding,
+      dimensions: data.data[0].embedding.length,
+      model,
+      tokens: data.usage.total_tokens
+    }
+  }
+
+  // ===== ANTHROPIC IMPLEMENTATION =====
+
+  /**
+   * Generate text using Anthropic API
+   */
+  private async generateAnthropicText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
+    const messages = []
+    if (request.systemPrompt) {
+      messages.push({ role: 'system', content: request.systemPrompt })
+    }
+    messages.push({ role: 'user', content: request.prompt })
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey!,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: request.maxTokens ?? config.maxTokens ?? 1000,
+        temperature: request.temperature ?? config.temperature ?? 0.7,
+        messages: messages.filter(m => m.role !== 'system'), // System messages handled separately
+        system: request.systemPrompt || undefined
+      })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${data.error?.message ?? 'Unknown error'}`)
+    }
+
+    return {
+      content: data.content[0].text,
+      metadata: {
+        model: config.model,
+        provider: 'anthropic',
+        tokens: {
+          input: data.usage?.input_tokens ?? 0,
+          output: data.usage?.output_tokens ?? 0,
+          total: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
+        },
+        latency: 0
+      }
+    }
+  }
+
+  /**
+   * Test Anthropic connection
+   */
+  private async testAnthropicConnection(provider: LLMConfig, startTime: number): Promise<ConnectionTestResult> {
+    if (!provider.apiKey) {
+      return { success: false, latency: 0, error: 'API key not configured' }
+    }
+
+    try {
+      // Test with a minimal request
+      const response = await this.generateAnthropicText(
+        { prompt: 'Hello', maxTokens: 1 },
+        provider
+      )
+      return { success: true, latency: Date.now() - startTime }
+    } catch (error) {
+      return {
+        success: false,
+        latency: Date.now() - startTime,
+        error: (error as Error).message
+      }
+    }
+  }
+
+  /**
+   * Get available models from Anthropic
+   */
+  private async getAnthropicModels(config: LLMConfig): Promise<string[]> {
+    // Anthropic doesn't have a public models endpoint, return known models
+    return this.getFallbackModels('anthropic')
+  }
+
+  // ===== OLLAMA IMPLEMENTATION =====
+
+  /**
+   * Generate text using Ollama
    */
   private async generateOllamaText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const baseUrl = config.baseUrl ?? 'http://localhost:11434'
@@ -537,7 +785,49 @@ export class AIService implements IAIService {
   }
 
   /**
-   * Private method: Generate text using LM Studio local server
+   * Test Ollama connection
+   */
+  private async testOllamaConnection(provider: LLMConfig, startTime: number): Promise<ConnectionTestResult> {
+    const baseUrl = provider.baseUrl ?? 'http://localhost:11434'
+
+    try {
+      const response = await this.fetchWithTimeout(`${baseUrl}/api/tags`, { method: 'GET' }, 5000)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      return { success: true, latency: Date.now() - startTime }
+    } catch (error) {
+      return {
+        success: false,
+        latency: Date.now() - startTime,
+        error: (error as Error).message
+      }
+    }
+  }
+
+  /**
+   * Get available models from Ollama
+   */
+  private async getOllamaModels(config: LLMConfig): Promise<string[]> {
+    const baseUrl = config.baseUrl ?? 'http://localhost:11434'
+
+    try {
+      const response = await this.fetchWithTimeout(`${baseUrl}/api/tags`, { method: 'GET' }, 5000)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      
+      const data = await response.json()
+      return data.models?.map((model: any) => model.name) ?? this.getFallbackModels('local-ollama')
+    } catch {
+      return this.getFallbackModels('local-ollama')
+    }
+  }
+
+  // ===== LM STUDIO IMPLEMENTATION =====
+
+  /**
+   * Generate text using LM Studio
    */
   private async generateLMStudioText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const baseUrl = config.baseUrl ?? 'http://localhost:1234'
@@ -575,97 +865,49 @@ export class AIService implements IAIService {
   }
 
   /**
-   * Private method: Generate embeddings using Gemini API
+   * Test LM Studio connection
    */
-  private async generateGeminiEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
-    const model = request.model ?? 'models/text-embedding-004'
-
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:embedContent?key=${config.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: { parts: [{ text: request.text }] }
-      })
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(`Gemini Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
-    }
-
-    return {
-      embedding: data.embedding.values,
-      dimensions: data.embedding.values.length,
-      model,
-      tokens: request.text.split(' ').length
-    }
-  }
-
-  /**
-   * Private method: Generate embeddings using OpenAI API
-   */
-  private async generateOpenAIEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
-    const model = request.model ?? 'text-embedding-3-small'
-
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        input: request.text
-      })
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(`OpenAI Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
-    }
-
-    return {
-      embedding: data.data[0].embedding,
-      dimensions: data.data[0].embedding.length,
-      model,
-      tokens: data.usage.total_tokens
-    }
-  }
-
-  /**
-   * Private method: Get available models from Ollama
-   */
-  private async getOllamaModels(config: LLMConfig): Promise<string[]> {
-    const baseUrl = config.baseUrl ?? 'http://localhost:11434'
+  private async testLMStudioConnection(provider: LLMConfig, startTime: number): Promise<ConnectionTestResult> {
+    const baseUrl = provider.baseUrl ?? 'http://localhost:1234'
 
     try {
-      const response = await fetch(`${baseUrl}/api/tags`)
-      const data = await response.json()
-      return data.models?.map((model: any) => model.name) ?? []
-    } catch {
-      return []
+      const response = await this.fetchWithTimeout(`${baseUrl}/v1/models`, { method: 'GET' }, 5000)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      return { success: true, latency: Date.now() - startTime }
+    } catch (error) {
+      return {
+        success: false,
+        latency: Date.now() - startTime,
+        error: (error as Error).message
+      }
     }
   }
 
   /**
-   * Private method: Get available models from LM Studio
+   * Get available models from LM Studio
    */
   private async getLMStudioModels(config: LLMConfig): Promise<string[]> {
     const baseUrl = config.baseUrl ?? 'http://localhost:1234'
 
     try {
-      const response = await fetch(`${baseUrl}/v1/models`)
+      const response = await this.fetchWithTimeout(`${baseUrl}/v1/models`, { method: 'GET' }, 5000)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      
       const data = await response.json()
-      return data.data?.map((model: any) => model.id) ?? []
+      return data.data?.map((model: any) => model.id) ?? this.getFallbackModels('local-lm-studio')
     } catch {
-      return []
+      return this.getFallbackModels('local-lm-studio')
     }
   }
 
+  // ===== UTILITY METHODS =====
+
   /**
-   * Private method: Calculate cosine similarity between two vectors
+   * Calculate cosine similarity between two vectors
    */
   private cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) {

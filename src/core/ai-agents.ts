@@ -133,7 +133,6 @@ export class DiscoveryAgent implements AIAgent {
    */
   async execute(context: AgentContext): Promise<AgentResult> {
     const startTime = Date.now()
-    const executionId = crypto.randomUUID()
 
     try {
       // Extract discovery query from context

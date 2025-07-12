@@ -26,12 +26,14 @@ import {
   Paper
 } from '@mui/material'
 import { LLMConfig } from '@/services/ai-service'
+import { aiProviderManager, AIProviderConfig } from '@/services/ai-provider-manager'
+import ProviderStatus from './ProviderStatus'
 
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
   onSave: (config: LLMConfig) => void
-  currentConfig?: LLMConfig
+  currentConfig?: AIProviderConfig
 }
 
 interface TabPanelProps {
@@ -60,6 +62,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     temperature: 0.7,
     maxTokens: 1000
   })
+  const [availableProviders, setAvailableProviders] = useState<LLMConfig[]>([])
   const [localSettings, setLocalSettings] = useState({
     autoSave: true,
     darkMode: true,
@@ -69,34 +72,65 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   useEffect(() => {
     if (currentConfig) {
-      setAiConfig(currentConfig)
-    }
-    // Load from environment variables
-    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY
-    if (envApiKey && !aiConfig.apiKey) {
-      setAiConfig(prev => ({ ...prev, apiKey: envApiKey }))
+      // Get the active provider configuration
+      const activeProvider = aiProviderManager.getActiveProvider()
+      if (activeProvider) {
+        setAiConfig(activeProvider)
+      }
+      
+      // Get all available providers
+      setAvailableProviders(aiProviderManager.getAvailableProviders())
+    } else {
+      // Initialize with current provider manager state
+      const activeProvider = aiProviderManager.getActiveProvider()
+      if (activeProvider) {
+        setAiConfig(activeProvider)
+      }
+      setAvailableProviders(aiProviderManager.getAvailableProviders())
     }
   }, [currentConfig])
 
   const handleSave = () => {
+    // Update the provider configuration in the provider manager
+    aiProviderManager.updateProviderConfig(aiConfig.provider, aiConfig)
+    
+    // Switch to this provider if it's different
+    if (aiProviderManager.getConfig().activeProvider !== aiConfig.provider) {
+      aiProviderManager.setActiveProvider(aiConfig.provider)
+    }
+    
+    // Still call the onSave callback for backward compatibility
     onSave(aiConfig)
     onClose()
   }
 
   const handleProviderChange = (provider: string) => {
-    const defaultModels = {
-      gemini: 'gemini-1.5-flash',
-      openai: 'gpt-4',
-      anthropic: 'claude-3-sonnet',
-      ollama: 'qwen3:latest',
-      lmstudio: 'local-model'
-    }
+    // Check if we already have configuration for this provider
+    const existingConfig = availableProviders.find(p => p.provider === provider)
     
-    setAiConfig(prev => ({
-      ...prev,
-      provider: provider as any,
-      model: defaultModels[provider as keyof typeof defaultModels] || prev.model
-    }))
+    if (existingConfig) {
+      // Use existing configuration
+      setAiConfig(existingConfig)
+    } else {
+      // Create new configuration with defaults
+      const defaultModels = {
+        gemini: 'gemini-1.5-flash',
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-sonnet-20240229',
+        'local-ollama': 'qwen3:latest',
+        'local-lm-studio': 'local-model'
+      }
+      
+      setAiConfig(prev => ({
+        ...prev,
+        provider: provider as any,
+        model: defaultModels[provider as keyof typeof defaultModels] || prev.model,
+        baseUrl: provider.startsWith('local-') ? (
+          provider === 'local-ollama' ? 'http://localhost:11434' : 'http://localhost:1234'
+        ) : undefined,
+        apiKey: provider.startsWith('local-') ? '' : (prev.apiKey || '')
+      }))
+    }
   }
 
   const getApiKeyPlaceholder = () => {
@@ -153,8 +187,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 <MenuItem value="gemini">Google Gemini</MenuItem>
                 <MenuItem value="openai">OpenAI</MenuItem>
                 <MenuItem value="anthropic">Anthropic Claude</MenuItem>
-                <MenuItem value="ollama">Ollama (Local)</MenuItem>
-                <MenuItem value="lmstudio">LM Studio (Local)</MenuItem>
+                <MenuItem value="local-ollama">Ollama (Local)</MenuItem>
+                <MenuItem value="local-lm-studio">LM Studio (Local)</MenuItem>
               </Select>
             </FormControl>
 
@@ -195,8 +229,17 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               inputProps={{ min: 100, max: 4000 }}
               value={aiConfig.maxTokens}
               onChange={(e) => setAiConfig(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
-              sx={{ mb: 2 }}
+              sx={{ mb: 3 }}
             />
+
+            <Divider sx={{ my: 3 }} />
+
+            <ProviderStatus 
+              selectedProvider={aiConfig.provider}
+              onProviderSelect={(provider) => handleProviderChange(provider)}
+            />
+
+            <Divider sx={{ my: 3 }} />
 
             {isLocalProvider && (
               <Alert severity="info" sx={{ mt: 2 }}>

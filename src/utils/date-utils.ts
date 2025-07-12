@@ -4,7 +4,7 @@
  * Ensures dates are properly handled in graph serialization
  */
 
-import { GraphNode, GraphEdge, GraphCluster } from '@/types/graph'
+import { GraphNode } from '@/types/graph'
 
 /**
  * Safe date conversion utility

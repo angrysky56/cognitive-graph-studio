@@ -282,6 +282,11 @@ npm run tauri-build
 
 ### **Common Issues**
 
+# Server left running ie starting on 5174
+```bash
+pkill -f "vite"
+```
+
 #### **Gemini API Connection Failed**
 ```bash
 # Check API key configuration

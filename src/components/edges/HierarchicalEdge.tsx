@@ -44,13 +44,13 @@ interface HierarchicalEdgeProps extends EdgeProps {
  * Uses straight paths for cleaner hierarchical visualization
  */
 const HierarchicalEdge: React.FC<HierarchicalEdgeProps> = ({
-  id,
+  id: _id,
   sourceX,
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
+  sourcePosition: _sourcePosition,
+  targetPosition: _targetPosition,
   style = {},
   data,
   markerEnd,
