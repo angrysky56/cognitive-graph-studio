@@ -1,22 +1,28 @@
 /**
- * Cognitive Graph Studio - Demo Implementation
- * 
- * Demonstrates the enhanced API integrations including:
+ * Cognitive Graph Studio - Demo     vector: {
+      dimensions: 384,
+      maxVectors: 5000,
+      persistence: false // Disable for demo
+    }
+  },
+  integration: {
+    autoEmbedding: true,
+    syncInterval: 5000,
+    enableDuplicateDetection: true
+  }* Demonstrates the enhanced API integrations including:
  * - Multi-LLM AI service with Gemini, OpenAI, and local providers
  * - Vector embedding service for semantic search
  * - TreeQuest AB-MCTS enhanced reasoning
  * - Integrated service coordination
- * 
+ *
  * @module Demo
  */
 
-import { 
-  ServiceManager, 
-  getServiceManager, 
-  initializeServices,
-  ServiceManagerConfig 
+import {
+  ServiceManager,
+  ServiceManagerConfig
 } from '../services/service-manager'
-import { 
+import {
   EnhancedQuery
 } from '../services/service-integration'
 
@@ -38,24 +44,15 @@ const DEMO_CONFIG: Partial<ServiceManagerConfig> = {
       timeoutMs: 15000
     },
     vector: {
-      dimensions: 768,
+      dimensions: 384,
       maxVectors: 5000,
       persistence: false // Disable for demo
-    },
-    treequest: {
-      algorithm: 'abmcts-a',
-      maxSimulations: 50, // Reduced for demo speed
-      timeLimit: 15,
-      explorationConstant: 1.414
     }
   },
   integration: {
     autoEmbedding: true,
-    useTreeQuestForComplexQueries: true,
-    complexityThreshold: 0.5,
-    cacheEnabled: true,
-    cacheTtl: 300000,
-    cacheMaxSize: 100
+    syncInterval: 5000,
+    enableDuplicateDetection: true
   }
 }
 
@@ -67,7 +64,7 @@ export class CognitiveGraphDemo {
   private isInitialized = false
 
   constructor() {
-    this.serviceManager = getServiceManager(DEMO_CONFIG)
+    this.serviceManager = new ServiceManager(DEMO_CONFIG as ServiceManagerConfig)
   }
 
   /**
@@ -79,8 +76,8 @@ export class CognitiveGraphDemo {
     console.log('🚀 Initializing Cognitive Graph Studio Demo...')
 
     try {
-      const result = await initializeServices(DEMO_CONFIG)
-      
+      const result = await this.serviceManager.initialize()
+
       if (result.success) {
         console.log('✅ All services initialized successfully!')
         this.isInitialized = true
@@ -131,7 +128,7 @@ export class CognitiveGraphDemo {
     console.log('━'.repeat(50))
 
     try {
-      const cognitiveService = this.serviceManager.getCognitiveGraphService()
+      const cognitiveService = this.serviceManager.getIntegrationService()
 
       const query: EnhancedQuery = {
         query: 'artificial intelligence machine learning',
@@ -143,9 +140,9 @@ export class CognitiveGraphDemo {
 
       console.log(`🔍 Searching for: "${query.query}"`)
       const startTime = Date.now()
-      
+
       const result = await cognitiveService.executeEnhancedQuery(query)
-      
+
       const elapsed = Date.now() - startTime
       console.log(`⚡ Search completed in ${elapsed}ms`)
       console.log(`📊 Found ${result.searchResults.length} results`)
@@ -168,7 +165,7 @@ export class CognitiveGraphDemo {
     console.log('━'.repeat(50))
 
     try {
-      const cognitiveService = this.serviceManager.getCognitiveGraphService()
+      const cognitiveService = this.serviceManager.getIntegrationService()
 
       const query: EnhancedQuery = {
         query: 'How can we improve neural network training efficiency using modern optimization techniques?',
@@ -181,15 +178,15 @@ export class CognitiveGraphDemo {
 
       console.log(`🧠 Complex query: "${query.query}"`)
       const startTime = Date.now()
-      
+
       const result = await cognitiveService.executeEnhancedQuery(query)
-      
+
       const elapsed = Date.now() - startTime
       console.log(`⚡ Query completed in ${elapsed}ms`)
       console.log(`📝 Generated content length: ${result.generatedContent?.length || 0} characters`)
       console.log(`🔤 Tokens used: ${result.metrics.tokensUsed}`)
       console.log(`🎯 Overall confidence: ${(result.metrics.confidence * 100).toFixed(1)}%`)
-      
+
       if (result.generatedContent) {
         console.log(`💡 Generated insight (first 200 chars):\n"${result.generatedContent.substring(0, 200)}..."`)
       }
@@ -209,7 +206,7 @@ export class CognitiveGraphDemo {
     console.log('━'.repeat(50))
 
     try {
-      const cognitiveService = this.serviceManager.getCognitiveGraphService()
+      const cognitiveService = this.serviceManager.getIntegrationService()
 
       const query: EnhancedQuery = {
         query: 'What is the optimal strategy for scaling a machine learning model deployment?',
@@ -223,22 +220,22 @@ export class CognitiveGraphDemo {
 
       console.log(`🌳 TreeQuest reasoning: "${query.query}"`)
       const startTime = Date.now()
-      
+
       const result = await cognitiveService.executeEnhancedQuery(query)
-      
+
       const elapsed = Date.now() - startTime
       console.log(`⚡ Reasoning completed in ${elapsed}ms`)
-      
+
       if (result.reasoningResult) {
         console.log(`🏆 Best action: "${result.reasoningResult.bestAction}"`)
         console.log(`🎯 Reasoning confidence: ${(result.reasoningResult.confidence * 100).toFixed(1)}%`)
         console.log(`🔍 Nodes explored: ${result.reasoningResult.searchStats.nodesExplored}`)
         console.log(`📏 Search depth: ${result.reasoningResult.searchStats.depth}`)
         console.log(`💭 Reasoning: ${result.reasoningResult.reasoning}`)
-        
+
         if (result.reasoningResult.alternativeActions.length > 0) {
           console.log('🔄 Alternative actions:')
-          result.reasoningResult.alternativeActions.forEach((alt, i) => {
+          result.reasoningResult.alternativeActions.forEach((alt: any, i: number) => {
             console.log(`   ${i + 1}. ${alt.action} (score: ${alt.score.toFixed(3)})`)
           })
         }
@@ -259,7 +256,7 @@ export class CognitiveGraphDemo {
     console.log('━'.repeat(50))
 
     try {
-      const cognitiveService = this.serviceManager.getCognitiveGraphService()
+      const cognitiveService = this.serviceManager.getIntegrationService()
 
       const query: EnhancedQuery = {
         query: 'Analyze the relationship between quantum computing and artificial intelligence',
@@ -278,14 +275,14 @@ export class CognitiveGraphDemo {
 
       console.log(`🔗 Multi-service query: "${query.query}"`)
       const startTime = Date.now()
-      
+
       const result = await cognitiveService.executeEnhancedQuery(query)
-      
+
       const elapsed = Date.now() - startTime
       console.log(`⚡ Integration completed in ${elapsed}ms`)
       console.log(`🛠️ Services used: ${result.metadata.servicesUsed.join(', ')}`)
       console.log(`📊 Complexity score: ${result.metadata.complexityScore.toFixed(3)}`)
-      
+
       // Performance breakdown
       console.log('⏱️ Performance breakdown:')
       console.log(`   Search: ${result.metrics.searchTime}ms`)
@@ -308,8 +305,8 @@ export class CognitiveGraphDemo {
     console.log('━'.repeat(50))
 
     try {
-      const health = await this.serviceManager.getHealthStatus()
-      
+      const health = await this.serviceManager.getServiceStatus()
+
       console.log(`🏥 Overall health: ${health.overall ? '✅ Healthy' : '❌ Unhealthy'}`)
       console.log('🔧 Service status:')
       console.log(`   AI Service: ${health.services.ai ? '✅' : '❌'}`)
@@ -336,7 +333,7 @@ export class CognitiveGraphDemo {
     console.log('\n🧪 Running Individual Service Tests...\n')
 
     try {
-      const services = this.serviceManager.getServices()
+      const services = this.serviceManager.getServiceStatus()
 
       // Test AI service
       console.log('🤖 Testing AI Service...')
@@ -374,7 +371,7 @@ export class CognitiveGraphDemo {
    */
   async cleanup(): Promise<void> {
     console.log('🧹 Cleaning up demo resources...')
-    await this.serviceManager.shutdown()
+    // await this.serviceManager.shutdown() // Method not implemented yet
     this.isInitialized = false
     console.log('✅ Cleanup completed!')
   }
@@ -385,10 +382,10 @@ export class CognitiveGraphDemo {
  */
 export async function runDemo(): Promise<void> {
   const demo = new CognitiveGraphDemo()
-  
+
   try {
     const initialized = await demo.initialize()
-    
+
     if (initialized) {
       await demo.runComprehensiveDemo()
       await demo.runServiceTests()

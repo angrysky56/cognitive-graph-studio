@@ -119,6 +119,8 @@ export interface EnhancedGraphNode extends Omit<GraphNode, 'content'> {
     label: string
     center: boolean
   }
+  /** Connected edge IDs (for backward compatibility) */
+  connections?: string[]
 }
 
 /**

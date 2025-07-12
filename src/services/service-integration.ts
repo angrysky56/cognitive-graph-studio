@@ -1,18 +1,18 @@
 /**
  * Service integration layer for Cognitive Graph Studio
- * 
+ *
  * Coordinates between AI, Vector, and TreeQuest services to provide
  * unified cognitive graph operations with enhanced reasoning capabilities.
- * 
+ *
  * @module ServiceIntegration
  */
 
 import { IAIService, AIService, LLMConfig } from './ai-service'
 import { IVectorService, VectorService, VectorIndexConfig } from './vector-service'
 import { TreeQuestEnhanced, ABMCTSConfig, TreeQuestState, ActionFunction } from './treequest-enhanced'
-import { 
-  EnhancedGraphNode, 
-  SemanticSearchContext, 
+import {
+  EnhancedGraphNode,
+  SemanticSearchContext,
   SemanticSearchResult,
   TreeQuestContext,
   TreeQuestResult
@@ -103,7 +103,7 @@ export interface EnhancedQueryResult {
 
 /**
  * Integrated service manager for cognitive graph operations
- * 
+ *
  * Provides unified interface to AI, Vector, and TreeQuest services
  * with intelligent routing and optimization capabilities.
  */
@@ -120,7 +120,7 @@ export class CognitiveGraphService {
    */
   constructor(config: IntegratedServiceConfig) {
     this.config = config
-    
+
     // Initialize AI service
     this.aiService = new AIService(
       config.ai.providers,
@@ -235,7 +235,7 @@ export class CognitiveGraphService {
 
     if (this.config.integration.autoEmbedding) {
       // Generate embedding for node content
-      const content = node.richContent.markdown + ' ' + 
+      const content = node.richContent.markdown + ' ' +
                     node.richContent.keyTerms.join(' ') + ' ' +
                     (node.richContent.summary || '')
 
@@ -304,7 +304,7 @@ export class CognitiveGraphService {
    * Perform AI content generation
    */
   private async performAIGeneration(
-    query: EnhancedQuery, 
+    query: EnhancedQuery,
     searchResults: SemanticSearchResult[]
   ): Promise<{ content: string; time: number; tokens: number }> {
     const genStart = Date.now()
@@ -321,7 +321,7 @@ export class CognitiveGraphService {
       prompt,
       systemPrompt: 'You are an expert knowledge synthesis agent.',
       temperature: query.generation?.temperature || 0.7,
-      maxTokens: query.generation?.maxTokens || 500
+      maxTokens: query.generation?.maxTokens || 8164
     })
 
     return {
@@ -358,7 +358,7 @@ export class CognitiveGraphService {
       expand: this.createExpandActionFunction(query, searchResults)
     }
 
-    // Create initial tree  
+    // Create initial tree
     const initialState: TreeQuestState = {
       id: crypto.randomUUID(),
       content: treeQuestContext.problemStatement,
@@ -370,14 +370,14 @@ export class CognitiveGraphService {
         confidence: 1.0
       }
     }
-    
+
     const tree = this.treeQuestService.initTree(initialState)
-    
+
     // Execute search with time limit
     const startTime = Date.now()
     const timeLimit = treeQuestContext.timeLimit * 1000
 
-    while (!this.treeQuestService.shouldTerminate(tree) && 
+    while (!this.treeQuestService.shouldTerminate(tree) &&
            (Date.now() - startTime) < timeLimit) {
       await this.treeQuestService.step(tree, actionFunctions)
     }
@@ -462,7 +462,7 @@ export class CognitiveGraphService {
    * Create explore action function
    */
   private createExploreActionFunction(
-    query: EnhancedQuery, 
+    query: EnhancedQuery,
     _searchResults: SemanticSearchResult[]
   ): ActionFunction {
     return async (parentState) => {
@@ -555,7 +555,7 @@ export class CognitiveGraphService {
    */
   private shouldUseTreeQuest(query: EnhancedQuery, complexityScore: number): boolean {
     return query.type === 'reasoning' ||
-           (this.config.integration.useTreeQuestForComplexQueries && 
+           (this.config.integration.useTreeQuestForComplexQueries &&
             complexityScore >= this.config.integration.complexityThreshold)
   }
 
@@ -665,8 +665,6 @@ export class CognitiveGraphService {
       type: 'concept',
       label: `Node ${nodeId}`,
       position: { x: 0, y: 0 },
-      connections: [],
-      aiGenerated: false,
       richContent: {
         markdown: `Content for node ${nodeId}`,
         keyTerms: ['example', 'node'],
@@ -708,10 +706,14 @@ export class CognitiveGraphService {
     treequest: boolean
     overall: boolean
   }> {
-    const [aiHealth, vectorHealth] = await Promise.all([
+    const [aiConnectionResult, vectorHealth] = await Promise.all([
       this.aiService.testConnection(this.config.ai.defaultProvider),
       this.checkVectorServiceHealth()
     ])
+
+    const aiHealth = !!aiConnectionResult && typeof aiConnectionResult === 'object' && 'success' in aiConnectionResult
+      ? (aiConnectionResult as any).success
+      : false
 
     const treeQuestHealth = true // TreeQuest is local, always healthy
 

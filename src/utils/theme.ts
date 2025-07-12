@@ -26,48 +26,12 @@ declare module '@mui/material/styles' {
 }
 
 // Color palette optimized for knowledge work
-const palette = {
-  primary: {
-    main: '#4da6ff',      // Bright blue for primary actions
-    light: '#80c7ff',     // Light blue for hover states
-    dark: '#1976d2',      // Dark blue for emphasis
-    contrastText: '#ffffff'
-  },
-  secondary: {
-    main: '#ffca80',      // Warm orange for secondary elements
-    light: '#ffd6a5',     // Light orange
-    dark: '#ff9800',      // Dark orange
-    contrastText: '#000000'
-  },
-  background: {
-    default: '#0a0a0f',   // Deep dark blue
-    paper: '#161621',     // Slightly lighter for surfaces
-  },
-  surface: {
-    level1: '#1e1e2e',    // Level 1 elevation
-    level2: '#262640',    // Level 2 elevation
-    level3: '#2e2e52',    // Level 3 elevation
-  },
-  text: {
-    primary: '#e0e0e0',   // High contrast text
-    secondary: '#a0a0a0', // Medium contrast text
-    disabled: '#606060',  // Low contrast text
-  },
-  divider: alpha('#ffffff', 0.12),
-  action: {
-    active: '#ffffff',
-    hover: alpha('#ffffff', 0.08),
-    selected: alpha('#4da6ff', 0.16),
-    disabled: alpha('#ffffff', 0.3),
-    disabledBackground: alpha('#ffffff', 0.12),
-  }
-}
 
 // Graph-specific colors for nodes and edges
 export const graphColors = {
   nodes: {
     concept: '#ffca80',     // Orange for concepts
-    idea: '#80c7ff',       // Blue for ideas  
+    idea: '#80c7ff',       // Blue for ideas
     source: '#90ee90',     // Green for sources
     cluster: '#dda0dd',    // Purple for clusters
   },
@@ -152,7 +116,6 @@ export const cognitiveTheme = createTheme({
     'none',
     '0px 2px 4px rgba(0, 0, 0, 0.2)',
     '0px 4px 8px rgba(0, 0, 0, 0.3)',
-    '0px 8px 16px rgba(0, 0, 0, 0.4)',
     '0px 8px 16px rgba(0, 0, 0, 0.4)',
     '0px 8px 16px rgba(0, 0, 0, 0.4)',
     '0px 8px 16px rgba(0, 0, 0, 0.4)',

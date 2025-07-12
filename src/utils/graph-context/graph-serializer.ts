@@ -1,14 +1,14 @@
 /**
- * Graph Context Serializer for AI Consumption
- * 
+ * Graph Context Serializer for AI Consumption - Fixed Version
+ *
  * Converts the current graph state into a format that AI can understand
- * and reason about. This addresses the critical issue where AI couldn't
- * read existing graph structure.
- * 
+ * and reason about. Fixed date handling issues.
+ *
  * @module GraphSerializer
  */
 
 import { EnhancedGraphNode, EnhancedGraphEdge, EnhancedGraphCluster } from '@/types/enhanced-graph'
+import { extractNodeData } from '@/utils/date-utils'
 
 export interface GraphContext {
   summary: {
@@ -79,22 +79,30 @@ export class GraphSerializer {
     const clusterArray = Array.from(clusters.values())
 
     // Calculate node connection counts
-    const connectionCounts = this.calculateConnectionCounts(nodeArray, edgeArray)
-    
+    const connectionCounts = this.calculateConnectionCounts(edgeArray)
+
     // Identify dominant types
     const typeCounts = nodeArray.reduce((acc, node) => {
       acc[node.type] = (acc[node.type] || 0) + 1
       return acc
     }, {} as Record<string, number>)
-    
+
     const dominantTypes = Object.entries(typeCounts)
       .sort(([,a], [,b]) => b - a)
       .slice(0, 3)
       .map(([type]) => type)
 
-    // Get recent activity
+    // Get recent activity (safe date handling)
     const recentActivity = nodeArray
-      .sort((a, b) => new Date(b.metadata.modified).getTime() - new Date(a.metadata.modified).getTime())
+      .sort((a, b) => {
+        try {
+          const dateA = new Date(a.metadata?.modified || a.metadata?.created || Date.now())
+          const dateB = new Date(b.metadata?.modified || b.metadata?.created || Date.now())
+          return dateB.getTime() - dateA.getTime()
+        } catch {
+          return 0
+        }
+      })
       .slice(0, 5)
       .map(node => `${node.label} (${node.type})`)
 
@@ -106,20 +114,12 @@ export class GraphSerializer {
         dominantTypes,
         recentActivity
       },
-      nodes: nodeArray.map(node => ({
-        id: node.id,
-        label: node.label,
-        type: node.type,
-        content: node.richContent.markdown.slice(0, 200) + (node.richContent.markdown.length > 200 ? '...' : ''),
-        tags: node.metadata.tags,
-        connections: connectionCounts[node.id] || 0,
-        created: this.safeToISOString(node.metadata.created)
-      })),
+      nodes: nodeArray.map(node => extractNodeData(node, connectionCounts)),
       relationships: edgeArray.map(edge => ({
         source: edge.source,
         target: edge.target,
         type: edge.type,
-        weight: edge.semantics.strength,
+        weight: edge.weight,
         label: edge.label
       })),
       clusters: clusterArray.map(cluster => ({
@@ -142,7 +142,7 @@ export class GraphSerializer {
     const { summary, nodes, relationships, clusters } = context
 
     let textSummary = `# Current Knowledge Graph Analysis\n\n`
-    
+
     textSummary += `## Overview\n`
     textSummary += `- **Nodes**: ${summary.nodeCount} concepts\n`
     textSummary += `- **Connections**: ${summary.edgeCount} relationships\n`
@@ -161,7 +161,7 @@ export class GraphSerializer {
     const topNodes = nodes
       .sort((a, b) => b.connections - a.connections)
       .slice(0, 10)
-    
+
     topNodes.forEach(node => {
       textSummary += `- **${node.label}** (${node.type}, ${node.connections} connections)\n`
       if (node.tags.length > 0) {
@@ -190,41 +190,18 @@ export class GraphSerializer {
   }
 
   /**
-   * Safe date conversion utility
-   */
-  private static safeToISOString(date: any): string {
-    try {
-      if (date instanceof Date) {
-        return date.toISOString()
-      }
-      if (typeof date === 'string') {
-        return new Date(date).toISOString()
-      }
-      if (typeof date === 'number') {
-        return new Date(date).toISOString()
-      }
-      // Fallback to current date
-      return new Date().toISOString()
-    } catch (error) {
-      console.warn('Date conversion failed, using current date:', error)
-      return new Date().toISOString()
-    }
-  }
-
-  /**
    * Calculate connection counts for each node
    */
   private static calculateConnectionCounts(
-    nodes: EnhancedGraphNode[], 
     edges: EnhancedGraphEdge[]
   ): Record<string, number> {
     const counts: Record<string, number> = {}
-    
+
     edges.forEach(edge => {
       counts[edge.source] = (counts[edge.source] || 0) + 1
       counts[edge.target] = (counts[edge.target] || 0) + 1
     })
-    
+
     return counts
   }
 
@@ -254,7 +231,7 @@ export class GraphSerializer {
     // Extract topic areas from node types and tags
     const topicAreas = [...new Set([
       ...nodes.map(node => node.type),
-      ...nodes.flatMap(node => node.metadata.tags)
+      ...nodes.flatMap(node => node.metadata?.tags || [])
     ])].filter(Boolean)
 
     return {
@@ -317,11 +294,11 @@ export class GraphSerializer {
   ): GraphAnalytics {
     const nodeArray = Array.from(nodes.values())
     const edgeArray = Array.from(edges.values())
-    const connectionCounts = this.calculateConnectionCounts(nodeArray, edgeArray)
+    const connectionCounts = this.calculateConnectionCounts(edgeArray)
 
     const totalPossibleEdges = nodeArray.length * (nodeArray.length - 1) / 2
     const density = edgeArray.length / (totalPossibleEdges || 1)
-    
+
     const connections = Object.values(connectionCounts)
     const averageConnections = connections.reduce((sum, count) => sum + count, 0) / connections.length || 0
 
@@ -354,30 +331,30 @@ export class GraphSerializer {
    */
   private static identifyPossibleGaps(nodes: EnhancedGraphNode[], edges: EnhancedGraphEdge[]): string[] {
     const gaps: string[] = []
-    
+
     // Find nodes with similar tags but no direct connection
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const nodeA = nodes[i]
         const nodeB = nodes[j]
-        
+
         // Check if they share tags
-        const sharedTags = nodeA.metadata.tags.filter(tag => 
+        const sharedTags = nodeA.metadata.tags.filter(tag =>
           nodeB.metadata.tags.includes(tag)
         )
-        
+
         // Check if they're connected
-        const isConnected = edges.some(edge => 
+        const isConnected = edges.some(edge =>
           (edge.source === nodeA.id && edge.target === nodeB.id) ||
           (edge.source === nodeB.id && edge.target === nodeA.id)
         )
-        
+
         if (sharedTags.length > 0 && !isConnected) {
           gaps.push(`${nodeA.label} ↔ ${nodeB.label} (shared: ${sharedTags.join(', ')})`)
         }
       }
     }
-    
+
     return gaps.slice(0, 10) // Limit to top 10 gaps
   }
 }

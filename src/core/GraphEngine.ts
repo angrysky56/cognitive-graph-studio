@@ -1,16 +1,16 @@
 /**
  * Core Graph Engine for Cognitive Graph Studio
- * 
+ *
  * Implements the complete "graph database with AI capabilities" concept from
  * the project blueprint. Orchestrates AI services, vector search, TreeQuest
  * reasoning, and 3D visualization for autonomous graph enhancement.
- * 
+ *
  * @module GraphEngine
  */
 
-import { 
-  EnhancedGraphNode, 
-  EnhancedGraphEdge, 
+import {
+  EnhancedGraphNode,
+  EnhancedGraphEdge,
   EnhancedGraphCluster,
   SemanticSearchContext,
   SemanticSearchResult,
@@ -20,11 +20,11 @@ import {
 } from '../types/enhanced-graph'
 
 import { IAIService, LLMConfig } from '../services/ai-service'
-import { IVectorService, VectorIndexConfig } from '../services/vector-service'
-import { ITreeQuestService, TreeQuestConfig } from '../services/treequest-service'
+import type { VectorIndexConfig } from '../services/vector-service'
+import { ITreeQuestService, TreeQuestService } from '@/services/treequest-service'
 import { IGraph3DService, Graph3DConfig } from '../services/graph3d-service'
-import { 
-  IAgentManager, 
+import {
+  IAgentManager,
   AgentConfig
 } from '../core/ai-agents'
 
@@ -40,7 +40,13 @@ export interface GraphEngineConfig {
   /** Vector service configuration */
   vectorService: VectorIndexConfig
   /** TreeQuest reasoning configuration */
-  treeQuest: TreeQuestConfig
+  treeQuest: {
+    enabled: boolean
+    algorithm: 'abmcts-a' | 'abmcts-m'
+    explorationConstant: number
+    maxTime: number
+    maxSimulations: number
+  }
   /** 3D visualization configuration */
   visualization: Graph3DConfig
   /** Agent configurations */
@@ -112,7 +118,7 @@ export interface GraphOperationResult {
  */
 export interface GraphStateChangeEvent {
   /** Event type */
-  type: 'node-added' | 'node-updated' | 'node-removed' | 
+  type: 'node-added' | 'node-updated' | 'node-removed' |
         'edge-added' | 'edge-updated' | 'edge-removed' |
         'cluster-updated' | 'search-completed' | 'discovery-completed'
   /** Affected entity IDs */
@@ -127,7 +133,7 @@ export interface GraphStateChangeEvent {
 
 /**
  * Core graph engine interface
- * 
+ *
  * Provides the main API for cognitive graph operations with AI capabilities,
  * semantic search, reasoning, and autonomous enhancement.
  */
@@ -146,7 +152,7 @@ export interface IGraphEngine {
    * @returns Promise resolving to created node
    */
   createNode(
-    nodeData: Partial<EnhancedGraphNode>, 
+    nodeData: Partial<EnhancedGraphNode>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -158,8 +164,8 @@ export interface IGraphEngine {
    * @returns Promise resolving to update result
    */
   updateNode(
-    nodeId: string, 
-    updates: Partial<EnhancedGraphNode>, 
+    nodeId: string,
+    updates: Partial<EnhancedGraphNode>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -178,7 +184,7 @@ export interface IGraphEngine {
    * @returns Promise resolving to created edge
    */
   createEdge(
-    edgeData: Partial<EnhancedGraphEdge>, 
+    edgeData: Partial<EnhancedGraphEdge>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -189,7 +195,7 @@ export interface IGraphEngine {
    * @returns Promise resolving to search results
    */
   search(
-    searchContext: SemanticSearchContext, 
+    searchContext: SemanticSearchContext,
     operationContext: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -208,7 +214,7 @@ export interface IGraphEngine {
    * @returns Promise resolving to enhancement results
    */
   autoEnhance(
-    targetNodeIds: string[] | undefined, 
+    targetNodeIds: string[] | undefined,
     context: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -219,7 +225,7 @@ export interface IGraphEngine {
    * @returns Promise resolving to reasoning results
    */
   reason(
-    reasoningContext: TreeQuestContext, 
+    reasoningContext: TreeQuestContext,
     operationContext: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -263,8 +269,8 @@ export interface IGraphEngine {
    * @returns Promise resolving to import result
    */
   import(
-    data: string, 
-    format: 'json' | 'graphml' | 'cytoscape', 
+    data: string,
+    format: 'json' | 'graphml' | 'cytoscape',
     context: GraphOperationContext
   ): Promise<GraphOperationResult>
 
@@ -277,16 +283,16 @@ export interface IGraphEngine {
 
 /**
  * Core graph engine implementation
- * 
+ *
  * Orchestrates all AI services and provides the main cognitive graph API
  * with autonomous enhancement, semantic search, and reasoning capabilities.
  */
 export class GraphEngine implements IGraphEngine {
   private config: GraphEngineConfig | null = null
-  
+
   // Core services
   private aiService: IAIService | null = null
-  private vectorService: IVectorService | null = null
+  private vectorService: any | null = null  // Use any to avoid interface conflicts for now
   private treeQuestService: ITreeQuestService | null = null
   private graph3DService: IGraph3DService | null = null
   private agentManager: IAgentManager | null = null
@@ -295,12 +301,12 @@ export class GraphEngine implements IGraphEngine {
   private nodes: Map<string, EnhancedGraphNode> = new Map()
   private edges: Map<string, EnhancedGraphEdge> = new Map()
   private clusters: Map<string, EnhancedGraphCluster> = new Map()
-  
+
   // Operation tracking
   private activeOperations: Map<string, GraphOperationContext> = new Map()
   private operationHistory: GraphOperationResult[] = []
   private eventSubscribers: Set<(event: GraphStateChangeEvent) => void> = new Set()
-  
+
   // Performance tracking
   private statistics = {
     totalOperations: 0,
@@ -317,16 +323,16 @@ export class GraphEngine implements IGraphEngine {
     try {
       // Initialize AI service
       await this.initializeAIService()
-      
+
       // Initialize vector service
       await this.initializeVectorService()
-      
+
       // Initialize TreeQuest service
       await this.initializeTreeQuestService()
-      
+
       // Initialize agent manager and agents
       await this.initializeAgentManager()
-      
+
       // Setup auto-enhancement if enabled
       if (config.behavior.autoDiscovery || config.behavior.autoLinking) {
         this.setupAutoEnhancement()
@@ -341,7 +347,7 @@ export class GraphEngine implements IGraphEngine {
    * Create enhanced node with AI processing
    */
   async createNode(
-    nodeData: Partial<EnhancedGraphNode>, 
+    nodeData: Partial<EnhancedGraphNode>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -350,7 +356,7 @@ export class GraphEngine implements IGraphEngine {
     try {
       // Generate node ID if not provided
       const nodeId = nodeData.id || crypto.randomUUID()
-      
+
       // Create base enhanced node
       const node: EnhancedGraphNode = {
         id: nodeId,
@@ -366,7 +372,6 @@ export class GraphEngine implements IGraphEngine {
           ...nodeData.metadata
         },
         connections: [],
-        aiGenerated: context.user.id === 'ai-system',
         richContent: nodeData.richContent || {
           markdown: nodeData.label || '',
           keyTerms: [],
@@ -375,8 +380,8 @@ export class GraphEngine implements IGraphEngine {
           attachments: []
         },
         aiMetadata: {
-          discoverySource: context.parameters.discoverySource,
-          confidenceScore: 0.8,
+          discoverySource: context.user.id === 'ai-system' ? 'ai-generated' : 'user-created',
+          confidenceScore: context.user.id === 'ai-system' ? 0.8 : 1.0,
           lastProcessed: new Date(),
           agentHistory: [],
           suggestions: [],
@@ -395,7 +400,7 @@ export class GraphEngine implements IGraphEngine {
       if (node.richContent.markdown && this.config?.behavior.autoSummarization) {
         const summaryResult = await this.processWithSummarizationAgent(node, context)
         agentsUsed.push('summarization-agent')
-        
+
         if (summaryResult.success) {
           node.richContent.summary = summaryResult.data.summary
           node.richContent.keyTerms = summaryResult.data.keyTerms
@@ -408,7 +413,7 @@ export class GraphEngine implements IGraphEngine {
         const embedding = await this.aiService?.generateEmbedding({
           text: `${node.label} ${node.richContent.summary || node.richContent.markdown}`
         })
-        
+
         if (embedding) {
           await this.vectorService.addVector({
             embedding: embedding.embedding,
@@ -510,8 +515,8 @@ export class GraphEngine implements IGraphEngine {
    * Update node with AI enhancement
    */
   async updateNode(
-    nodeId: string, 
-    updates: Partial<EnhancedGraphNode>, 
+    nodeId: string,
+    updates: Partial<EnhancedGraphNode>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -541,13 +546,13 @@ export class GraphEngine implements IGraphEngine {
       }
 
       // Re-process with AI if content changed
-      const contentChanged = updates.richContent?.markdown && 
+      const contentChanged = updates.richContent?.markdown &&
         updates.richContent.markdown !== existingNode.richContent.markdown
 
       if (contentChanged && this.config?.behavior.autoSummarization) {
         const summaryResult = await this.processWithSummarizationAgent(updatedNode, context)
         agentsUsed.push('summarization-agent')
-        
+
         if (summaryResult.success) {
           updatedNode.richContent.summary = summaryResult.data.summary
           updatedNode.richContent.keyTerms = summaryResult.data.keyTerms
@@ -560,7 +565,7 @@ export class GraphEngine implements IGraphEngine {
         const embedding = await this.aiService?.generateEmbedding({
           text: `${updatedNode.label} ${updatedNode.richContent.summary || updatedNode.richContent.markdown}`
         })
-        
+
         if (embedding) {
           await this.vectorService.addVector({
             embedding: embedding.embedding,
@@ -581,7 +586,7 @@ export class GraphEngine implements IGraphEngine {
       if (this.config?.behavior.autoCritique) {
         const critiqueResult = await this.processWithCritiqueAgent(updatedNode, context)
         agentsUsed.push('critique-agent')
-        
+
         if (critiqueResult.success) {
           updatedNode.aiMetadata.suggestions = critiqueResult.data.recommendations
           updatedNode.aiMetadata.flags = {
@@ -727,7 +732,7 @@ export class GraphEngine implements IGraphEngine {
    * Create edge with AI validation
    */
   async createEdge(
-    edgeData: Partial<EnhancedGraphEdge>, 
+    edgeData: Partial<EnhancedGraphEdge>,
     context: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -784,7 +789,7 @@ export class GraphEngine implements IGraphEngine {
       if (this.config?.behavior.autoCritique) {
         const critiqueResult = await this.processEdgeWithCritiqueAgent(edge, sourceNode, targetNode, context)
         agentsUsed.push('critique-agent')
-        
+
         if (critiqueResult.success) {
           edge.discovery.confidence = critiqueResult.data.overallScore
           edge.semantics.strength = critiqueResult.data.strengthScore
@@ -795,6 +800,8 @@ export class GraphEngine implements IGraphEngine {
       this.edges.set(edgeId, edge)
 
       // Update node connections
+      if (!sourceNode.connections) sourceNode.connections = []
+      if (!targetNode.connections) targetNode.connections = []
       sourceNode.connections.push(edgeId)
       targetNode.connections.push(edgeId)
 
@@ -844,7 +851,7 @@ export class GraphEngine implements IGraphEngine {
    * Perform semantic search across the graph
    */
   async search(
-    searchContext: SemanticSearchContext, 
+    searchContext: SemanticSearchContext,
     operationContext: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -870,7 +877,7 @@ export class GraphEngine implements IGraphEngine {
       })
 
       // Convert to semantic search results
-      const searchResults: SemanticSearchResult[] = vectorResults.map(result => {
+      const searchResults: SemanticSearchResult[] = vectorResults.map((result: any) => {
         const node = this.nodes.get(result.nodeId)
         if (!node) {
           throw new Error(`Node ${result.nodeId} not found in graph`)
@@ -901,7 +908,7 @@ export class GraphEngine implements IGraphEngine {
 
       return {
         success: true,
-        data: { 
+        data: {
           results: searchResults,
           query: searchContext.query,
           totalResults: searchResults.length
@@ -914,7 +921,7 @@ export class GraphEngine implements IGraphEngine {
           affectedEdges: [],
           agentsUsed: []
         },
-        suggestions: searchResults.length === 0 ? 
+        suggestions: searchResults.length === 0 ?
           ['Try broader search terms', 'Add more content to the graph'] :
           ['Explore related concepts', 'Refine search with filters']
       }
@@ -983,7 +990,19 @@ export class GraphEngine implements IGraphEngine {
           label: discoveryResult.data.richContent.keyTerms[0] || 'Discovered Content',
           type: 'concept',
           richContent: discoveryResult.data.richContent,
-          aiGenerated: true
+          aiMetadata: {
+            discoverySource: 'ai-generated',
+            confidenceScore: 0.8,
+            lastProcessed: new Date(),
+            agentHistory: [],
+            suggestions: [],
+            flags: {
+              needsReview: false,
+              needsUpdate: false,
+              isStale: false,
+              hasErrors: false
+            }
+          }
         }, nodeCreationContext)
 
         // Emit discovery event
@@ -1042,7 +1061,7 @@ export class GraphEngine implements IGraphEngine {
    * Auto-enhance graph with AI agents
    */
   async autoEnhance(
-    targetNodeIds: string[] | undefined, 
+    targetNodeIds: string[] | undefined,
     context: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -1051,7 +1070,7 @@ export class GraphEngine implements IGraphEngine {
     const affectedEdges: string[] = []
 
     try {
-      const nodesToEnhance = targetNodeIds 
+      const nodesToEnhance = targetNodeIds
         ? targetNodeIds.map(id => this.nodes.get(id)).filter(Boolean) as EnhancedGraphNode[]
         : Array.from(this.nodes.values()).slice(0, 10) // Limit to prevent overwhelming
 
@@ -1077,15 +1096,15 @@ export class GraphEngine implements IGraphEngine {
                 source: node.id,
                 target: rel.targetNodeId,
                 type: rel.relationshipType,
-                metadata: { 
+                metadata: {
                   created: new Date(),
                   modified: new Date(),
-                  confidence: rel.confidence, 
-                  aiGenerated: true 
+                  confidence: rel.confidence,
+                  aiGenerated: true
                 },
                 discovery: { discoveredBy: 'ai', confidence: rel.confidence, reasoning: rel.reasoning }
               }, context)
-              
+
               if (edgeResult.success) {
                 affectedEdges.push(edgeResult.data.edge.id)
               }
@@ -1160,7 +1179,7 @@ export class GraphEngine implements IGraphEngine {
    * Reason about graph structure using TreeQuest
    */
   async reason(
-    reasoningContext: TreeQuestContext, 
+    reasoningContext: TreeQuestContext,
     operationContext: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -1172,27 +1191,48 @@ export class GraphEngine implements IGraphEngine {
 
       // Define action generators for reasoning
       const actionGenerators = {
-        'create-node': async (state: any) => ({
-          action: 'create-node',
-          newState: { ...state, nodeCreated: true },
-          reward: 0.8,
-          confidence: 0.8,
-          reasoning: 'Creating new node enhances graph structure'
-        }),
-        'create-edge': async (state: any) => ({
-          action: 'create-edge',
-          newState: { ...state, edgeCreated: true },
-          reward: 0.7,
-          confidence: 0.7,
-          reasoning: 'Creating edge improves connectivity'
-        }),
-        'enhance-content': async (state: any) => ({
-          action: 'enhance-content',
-          newState: { ...state, contentEnhanced: true },
-          reward: 0.6,
-          confidence: 0.6,
-          reasoning: 'Content enhancement improves quality'
-        })
+        'create-node': async (parentState: any) => {
+          const newState = {
+            id: crypto.randomUUID(),
+            content: 'create-node-action',
+            context: parentState ? [...parentState.context, 'create-node'] : ['create-node'],
+            metadata: {
+              depth: parentState ? parentState.metadata.depth + 1 : 1,
+              path: parentState ? [...parentState.metadata.path, 'create-node'] : ['create-node'],
+              score: 0.8,
+              confidence: 0.8
+            }
+          }
+          return [newState, 0.8] as [any, number]
+        },
+        'create-edge': async (parentState: any) => {
+          const newState = {
+            id: crypto.randomUUID(),
+            content: 'create-edge-action',
+            context: parentState ? [...parentState.context, 'create-edge'] : ['create-edge'],
+            metadata: {
+              depth: parentState ? parentState.metadata.depth + 1 : 1,
+              path: parentState ? [...parentState.metadata.path, 'create-edge'] : ['create-edge'],
+              score: 0.7,
+              confidence: 0.7
+            }
+          }
+          return [newState, 0.7] as [any, number]
+        },
+        'enhance-content': async (parentState: any) => {
+          const newState = {
+            id: crypto.randomUUID(),
+            content: 'enhance-content-action',
+            context: parentState ? [...parentState.context, 'enhance-content'] : ['enhance-content'],
+            metadata: {
+              depth: parentState ? parentState.metadata.depth + 1 : 1,
+              path: parentState ? [...parentState.metadata.path, 'enhance-content'] : ['enhance-content'],
+              score: 0.6,
+              confidence: 0.6
+            }
+          }
+          return [newState, 0.6] as [any, number]
+        }
       }
 
       const reasoningResult = await this.treeQuestService.reason(reasoningContext, actionGenerators)
@@ -1264,7 +1304,7 @@ export class GraphEngine implements IGraphEngine {
    */
   subscribe(callback: (event: GraphStateChangeEvent) => void): () => void {
     this.eventSubscribers.add(callback)
-    
+
     return () => {
       this.eventSubscribers.delete(callback)
     }
@@ -1287,7 +1327,7 @@ export class GraphEngine implements IGraphEngine {
             version: '1.0'
           }
         }, null, 2)
-      
+
       case 'cytoscape':
         return JSON.stringify({
           elements: [
@@ -1300,7 +1340,7 @@ export class GraphEngine implements IGraphEngine {
             }))
           ]
         }, null, 2)
-      
+
       default:
         throw new Error(`Export format ${format} not supported`)
     }
@@ -1310,8 +1350,8 @@ export class GraphEngine implements IGraphEngine {
    * Import graph from external format
    */
   async import(
-    data: string, 
-    format: 'json' | 'graphml' | 'cytoscape', 
+    data: string,
+    format: 'json' | 'graphml' | 'cytoscape',
     context: GraphOperationContext
   ): Promise<GraphOperationResult> {
     const startTime = Date.now()
@@ -1330,7 +1370,7 @@ export class GraphEngine implements IGraphEngine {
               importedNodes++
             }
           }
-          
+
           // Import edges
           if (parsedData.edges) {
             for (const edgeData of parsedData.edges) {
@@ -1339,7 +1379,7 @@ export class GraphEngine implements IGraphEngine {
             }
           }
           break
-        
+
         case 'cytoscape':
           // Handle Cytoscape format
           if (parsedData.elements) {
@@ -1365,7 +1405,7 @@ export class GraphEngine implements IGraphEngine {
             }
           }
           break
-        
+
         default:
           throw new Error(`Import format ${format} not supported`)
       }
@@ -1431,13 +1471,13 @@ export class GraphEngine implements IGraphEngine {
   }
 
   // Private helper methods continue...
-  
+
   /**
    * Initialize AI service with providers
    */
   private async initializeAIService(): Promise<void> {
     if (!this.config) throw new Error('Config not set')
-    
+
     // Would import and initialize actual AIService
     console.log('Initializing AI service with providers:', this.config.aiService.providers)
   }
@@ -1447,9 +1487,16 @@ export class GraphEngine implements IGraphEngine {
    */
   private async initializeVectorService(): Promise<void> {
     if (!this.config) throw new Error('Config not set')
-    
-    // Would import and initialize actual VectorService
-    console.log('Initializing vector service')
+
+    try {
+      const { ChromaVectorServiceImpl } = await import('../services/chroma-vector-service')
+      this.vectorService = new ChromaVectorServiceImpl()
+      await this.vectorService.initialize(this.config.vectorService)
+      console.log('Vector service initialized successfully')
+    } catch (error) {
+      console.error('Failed to initialize vector service:', error)
+      // Don't throw - allow engine to work without vector service
+    }
   }
 
   /**
@@ -1457,9 +1504,14 @@ export class GraphEngine implements IGraphEngine {
    */
   private async initializeTreeQuestService(): Promise<void> {
     if (!this.config) throw new Error('Config not set')
-    
-    // Would import and initialize actual TreeQuestService
-    console.log('Initializing TreeQuest service')
+
+    try {
+      this.treeQuestService = new TreeQuestService(this.aiService!)
+      console.log('TreeQuest service initialized successfully')
+    } catch (error) {
+      console.error('Failed to initialize TreeQuest service:', error)
+      throw error
+    }
   }
 
   /**
@@ -1467,7 +1519,7 @@ export class GraphEngine implements IGraphEngine {
    */
   private async initializeAgentManager(): Promise<void> {
     if (!this.config) throw new Error('Config not set')
-    
+
     // Would import and initialize actual AgentManager with agents
     console.log('Initializing agent manager')
   }
@@ -1491,7 +1543,7 @@ export class GraphEngine implements IGraphEngine {
    * Process node with summarization agent
    */
   private async processWithSummarizationAgent(
-    _node: EnhancedGraphNode, 
+    _node: EnhancedGraphNode,
     _context: GraphOperationContext
   ): Promise<AgentResult> {
     // Would call actual summarization agent
@@ -1514,7 +1566,7 @@ export class GraphEngine implements IGraphEngine {
    * Process node with linking agent
    */
   private async processWithLinkingAgent(
-    _node: EnhancedGraphNode, 
+    _node: EnhancedGraphNode,
     _context: GraphOperationContext
   ): Promise<AgentResult> {
     // Would call actual linking agent
@@ -1535,7 +1587,7 @@ export class GraphEngine implements IGraphEngine {
    * Process node with critique agent
    */
   private async processWithCritiqueAgent(
-    _node: EnhancedGraphNode, 
+    _node: EnhancedGraphNode,
     _context: GraphOperationContext
   ): Promise<AgentResult> {
     // Would call actual critique agent
@@ -1613,10 +1665,10 @@ export class GraphEngine implements IGraphEngine {
     const duration = Date.now() - startTime
     this.statistics.totalOperations++
     this.statistics.lastModified = new Date()
-    
+
     // Update average operation time
-    this.statistics.averageOperationTime = 
-      (this.statistics.averageOperationTime * (this.statistics.totalOperations - 1) + duration) / 
+    this.statistics.averageOperationTime =
+      (this.statistics.averageOperationTime * (this.statistics.totalOperations - 1) + duration) /
       this.statistics.totalOperations
   }
 }

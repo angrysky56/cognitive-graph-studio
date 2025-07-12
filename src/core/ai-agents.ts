@@ -221,7 +221,7 @@ Generate:
 Format as JSON with searchQueries array and sources array.`,
       format: 'json',
       temperature: 0.7,
-      maxTokens: 1000
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
@@ -327,7 +327,7 @@ Create:
 Format as JSON with title, content, summary, keyPoints array, and confidence number.`,
       format: 'json',
       temperature: 0.3,
-      maxTokens: 2000
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
@@ -478,7 +478,7 @@ Generate:
 Format as JSON with summary and confidence fields.`,
       format: 'json',
       temperature: 0.3,
-      maxTokens: 1000
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)

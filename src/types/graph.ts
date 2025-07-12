@@ -15,6 +15,7 @@ export interface GraphNode {
     tags: string[]
     color?: string
     size?: number
+    graphId?: string // ID of the graph this node belongs to
     // IdeaNode specific properties
     confidence?: number // 0-1 confidence score
     priority?: 'low' | 'medium' | 'high'
@@ -26,12 +27,18 @@ export interface GraphNode {
     published?: Date
     // Additional AI-related metadata
     aiConfidence?: number
-    processingResults?: any
+    processingResults?: {
+      summary?: string
+      embeddings?: number[]
+      actionsTaken?: string[]
+    }
+    clusterId?: string
   }
-  connections: string[] // Connected node IDs
-  aiGenerated: boolean
-  clusterId?: string
-  // D3.js simulation properties
+
+  /**
+   * D3.js simulation properties for force-directed layout and positioning.
+   * These are used internally by D3 for node positioning, velocity, and fixed coordinates.
+   */
   x?: number
   y?: number
   fx?: number | null

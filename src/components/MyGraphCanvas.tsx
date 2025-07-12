@@ -1,7 +1,7 @@
 /**
  * MyGraphCanvas Component - Modern React Flow-based Graph Visualization
  * Replaces the poor D3.js implementation with a maintainable React Flow solution
- * 
+ *
  * Features:
  * - Interactive node-link graph with React Flow
  * - Automatic layout using Dagre algorithms
@@ -26,61 +26,124 @@ import {
   EdgeChange,
   BackgroundVariant,
   Panel,
+  OnSelectionChangeParams,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import {
   Box,
-  Tooltip,
   Chip,
-  Typography,
-  Card,
-  CardContent,
-  ButtonGroup,
-  Divider,
-  Button,
 } from '@mui/material';
-import {
-  AccountTree,
-  Refresh,
-  ViewModule,
-  Hub,
-  GridView,
-  ScatterPlot,
-  AccountBalance,
-} from '@mui/icons-material';
-
 import { useTheme } from '@mui/material/styles';
 import useEnhancedGraphStore from '@/stores/enhancedGraphStore';
 import { EnhancedGraphNode, EnhancedGraphEdge } from '@/types/enhanced-graph';
-import { 
-  getLayoutedElements, 
+import {
+  getLayoutedElements,
   getCircularLayout,
   getGridLayout,
   getRadialLayout,
   getTreeLayout,
   getForceLayout,
-  LayoutAlgorithm, 
+  LayoutAlgorithm,
   LayoutDirection,
-  defaultLayoutConfig 
+  defaultLayoutConfig
 } from '@/utils/layout';
 
 // Custom node types
 import ConceptNode from './nodes/ConceptNode';
 import SourceNode from './nodes/SourceNode';
 import IdeaNode from './nodes/IdeaNode';
+import DefaultNode from './nodes/DefaultNode';
 
 // Custom edge types
 import SemanticEdge from './edges/SemanticEdge';
 import HierarchicalEdge from './edges/HierarchicalEdge';
 
 /**
- * Node type registry for React Flow
+ * Enhanced node type registry for React Flow
+ * Includes all known types plus fallback for unknown types
  */
 const nodeTypes = {
+  // Primary node types
   concept: ConceptNode,
   source: SourceNode,
   idea: IdeaNode,
+
+  // Extended node types using DefaultNode
+  topic: DefaultNode,
+  technology: DefaultNode,
+  ionic: DefaultNode,
+  organization: DefaultNode,
+  tool: DefaultNode,
+  framework: DefaultNode,
+  library: DefaultNode,
+  service: DefaultNode,
+  api: DefaultNode,
+  component: DefaultNode,
+  feature: DefaultNode,
+  workflow: DefaultNode,
+  process: DefaultNode,
+  method: DefaultNode,
+  strategy: DefaultNode,
+  approach: DefaultNode,
+  pattern: DefaultNode,
+  template: DefaultNode,
+  resource: DefaultNode,
+  document: DefaultNode,
+  reference: DefaultNode,
+  example: DefaultNode,
+  demo: DefaultNode,
+  tutorial: DefaultNode,
+  guide: DefaultNode,
+  standard: DefaultNode,
+  convention: DefaultNode,
+  configuration: DefaultNode,
+  setting: DefaultNode,
+  environment: DefaultNode,
+  deployment: DefaultNode,
+  monitoring: DefaultNode,
+  analytics: DefaultNode,
+  metrics: DefaultNode,
+  insight: DefaultNode,
+  analysis: DefaultNode,
+  research: DefaultNode,
+  study: DefaultNode,
+  experiment: DefaultNode,
+  test: DefaultNode,
+  validation: DefaultNode,
+  verification: DefaultNode,
+  optimization: DefaultNode,
+  enhancement: DefaultNode,
+  improvement: DefaultNode,
+  update: DefaultNode,
+  version: DefaultNode,
+  release: DefaultNode,
+  milestone: DefaultNode,
+  goal: DefaultNode,
+  objective: DefaultNode,
+  target: DefaultNode,
+  requirement: DefaultNode,
+  specification: DefaultNode,
+  design: DefaultNode,
+  architecture: DefaultNode,
+  model: DefaultNode,
+  schema: DefaultNode,
+  interface: DefaultNode,
+  endpoint: DefaultNode,
+  database: DefaultNode,
+  storage: DefaultNode,
+  cache: DefaultNode,
+  session: DefaultNode,
+  state: DefaultNode,
+  context: DefaultNode,
+  scope: DefaultNode,
+  namespace: DefaultNode,
+  module: DefaultNode,
+  package: DefaultNode,
+  dependency: DefaultNode,
+
+  // Fallback for any unknown types
+  default: DefaultNode,
 };
 
 /**
@@ -99,11 +162,16 @@ interface MyGraphCanvasProps {
   height?: number;
   onNodeClick?: (node: EnhancedGraphNode) => void;
   onEdgeClick?: (edge: EnhancedGraphEdge) => void;
+  layoutTrigger?: {
+    algorithm: LayoutAlgorithm;
+    direction?: LayoutDirection;
+    timestamp: number;
+  };
 }
 
 /**
  * MyGraphCanvas - Modern React Flow implementation
- * 
+ *
  * Provides a clean, maintainable graph visualization using React Flow
  * with automatic layout algorithms and AI integration capabilities
  */
@@ -112,14 +180,25 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   height = 600,
   onNodeClick,
   onEdgeClick,
+  layoutTrigger,
 }) => {
   const theme = useTheme();
-  const [currentLayout, setCurrentLayout] = useState<LayoutAlgorithm>('dagre');
+  const [currentLayout] = useState<LayoutAlgorithm>('dagre');
   const [layoutDirection] = useState<LayoutDirection>('TB');
 
-  const { nodes: storeNodes, edges: storeEdges, selectedNodes, createNode, createEdge, updateNode, deleteNode, selectNode, deselectNode, deleteEdge } = useEnhancedGraphStore();
+  const {
+    nodes: storeNodes,
+    edges: storeEdges,
+    createNode,
+    createEdge,
+    updateNode,
+    deleteNode,
+    selectNode,
+    deselectNode,
+    deleteEdge
+  } = useEnhancedGraphStore();
 
-  // Convert store data to React Flow format
+  // Convert store data to React Flow format - enhanced with callbacks
   const convertToReactFlowNodes = useCallback((graphNodes: Map<string, EnhancedGraphNode>): Node[] => {
     return Array.from(graphNodes.values()).map((node) => ({
       id: node.id,
@@ -127,19 +206,27 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
       position: node.position,
       data: {
         label: node.label,
-        content: node.richContent.markdown, // Use richContent.markdown
+        content: node.richContent?.markdown || '',
         metadata: node.metadata,
-        aiGenerated: node.aiGenerated,
-        selected: selectedNodes.has(node.id),
-        onSelect: () => selectNode(node.id),
-        onDeselect: () => deselectNode(node.id),
-        onUpdate: (updates: Partial<EnhancedGraphNode>) => updateNode(node.id, updates),
-        onDelete: () => deleteNode(node.id),
-        onClick: () => onNodeClick?.(node),
+        aiGenerated: node.aiMetadata?.discoverySource?.includes('ai') || false,
+        type: node.type,
+        // Add interaction callbacks for DefaultNode (selection only)
+        onClick: () => {
+          selectNode(node.id);
+          onNodeClick?.(node);
+        },
+        onEdit: () => {
+          // Node editing is handled by the dedicated NodeEditorPanel
+          console.log('Edit node via NodeEditorPanel:', node.id);
+        },
+        onDelete: () => {
+          if (window.confirm(`Delete "${node.label}"?`)) {
+            deleteNode(node.id);
+          }
+        },
       },
-      selected: selectedNodes.has(node.id),
     }));
-  }, [selectedNodes, selectNode, deselectNode, updateNode, deleteNode, onNodeClick]);
+  }, [selectNode, onNodeClick, deleteNode]);
 
   const convertToReactFlowEdges = useCallback((graphEdges: Map<string, EnhancedGraphEdge>): Edge[] => {
     return Array.from(graphEdges.values()).map((edge) => ({
@@ -157,22 +244,22 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         onClick: () => onEdgeClick?.(edge),
       },
       label: edge.label,
-      animated: edge.visual.animated, // Use visual.animated
+      animated: edge.visual.animated,
       style: {
-        stroke: edge.visual.color, // Use visual.color
+        stroke: edge.visual.color,
         strokeWidth: Math.max(1, edge.weight * 2),
       },
     }));
-  }, [theme.palette.primary.main, onEdgeClick]);
+  }, [onEdgeClick]);
 
   // Initialize React Flow nodes and edges
-  const initialNodes = useMemo(() => 
-    convertToReactFlowNodes(storeNodes), 
+  const initialNodes = useMemo(() =>
+    convertToReactFlowNodes(storeNodes),
     [storeNodes, convertToReactFlowNodes]
   );
-  
-  const initialEdges = useMemo(() => 
-    convertToReactFlowEdges(storeEdges), 
+
+  const initialEdges = useMemo(() =>
+    convertToReactFlowEdges(storeEdges),
     [storeEdges, convertToReactFlowEdges]
   );
 
@@ -180,13 +267,19 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Update React Flow when store changes
+  // Update React Flow when store changes (with debouncing to prevent loops)
   useEffect(() => {
-    setNodes(convertToReactFlowNodes(storeNodes));
+    const timeoutId = setTimeout(() => {
+      setNodes(convertToReactFlowNodes(storeNodes));
+    }, 50);
+    return () => clearTimeout(timeoutId);
   }, [storeNodes, convertToReactFlowNodes, setNodes]);
 
   useEffect(() => {
-    setEdges(convertToReactFlowEdges(storeEdges));
+    const timeoutId = setTimeout(() => {
+      setEdges(convertToReactFlowEdges(storeEdges));
+    }, 50);
+    return () => clearTimeout(timeoutId);
   }, [storeEdges, convertToReactFlowEdges, setEdges]);
 
   // Handle connection creation
@@ -230,7 +323,7 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   // Handle node changes
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
-    
+
     // Sync position changes back to store
     changes.forEach((change) => {
       if (change.type === 'position' && change.position) {
@@ -242,7 +335,7 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
   // Handle edge changes
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
     onEdgesChange(changes);
-    
+
     // Handle edge deletions
     changes.forEach((change) => {
       if (change.type === 'remove') {
@@ -259,7 +352,7 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
     };
 
     let layoutedElements;
-    
+
     switch (algorithm) {
       case 'circular':
         layoutedElements = getCircularLayout(nodes, edges, width / 2, height / 2);
@@ -284,22 +377,27 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
 
     setNodes(layoutedElements.nodes);
     setEdges(layoutedElements.edges);
-    
+
     // Update store with new positions
     layoutedElements.nodes.forEach((node) => {
       updateNode(node.id, { position: node.position });
     });
   }, [nodes, edges, width, height, layoutDirection, setNodes, setEdges, updateNode]);
 
-  
+  // Respond to external layout trigger changes
+  useEffect(() => {
+    if (layoutTrigger) {
+      applyLayout(layoutTrigger.algorithm, layoutTrigger.direction);
+    }
+  }, [layoutTrigger, applyLayout]);
 
-  const handleLayoutChange = async (layout: LayoutAlgorithm) => {
-    setCurrentLayout(layout);
-    await applyLayout(layout);
-  };
 
-  // Create new node on canvas click
+
+  // Create new node on canvas click (with shift key)
   const handlePaneClick = useCallback((event: React.MouseEvent) => {
+    // Only create new nodes when shift key is pressed
+    if (!event.shiftKey) return;
+
     const bounds = (event.target as HTMLElement).getBoundingClientRect();
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
@@ -312,13 +410,44 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
       aiMetadata: { confidenceScore: 0, lastProcessed: new Date(), agentHistory: [], suggestions: [], flags: { needsReview: false, needsUpdate: false, isStale: false, hasErrors: false } },
       position3D: { x: 0, y: 0, z: 0 },
       similarities: new Map(),
-      connections: [],
-      aiGenerated: false,
       metadata: { created: new Date(), modified: new Date(), tags: [] }
     };
 
     createNode(newNode);
   }, [createNode]);
+
+  // Handle node clicks
+  const handleNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    // React Flow will handle the selection, we just prevent any navigation
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Trigger the node's onClick if it exists
+    if (node.data.onClick) {
+      node.data.onClick();
+    }
+  }, []);
+
+  // Handle React Flow selection changes - no dependencies on state
+  const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
+    // Get current selected nodes from store
+    const currentSelected = useEnhancedGraphStore.getState().selectedNodes;
+    const newSelectedNodeIds = new Set(params.nodes.map(n => n.id));
+
+    // Update store selection to match React Flow
+    newSelectedNodeIds.forEach(nodeId => {
+      if (!currentSelected.has(nodeId)) {
+        selectNode(nodeId);
+      }
+    });
+
+    // Remove nodes that are no longer selected
+    currentSelected.forEach(nodeId => {
+      if (!newSelectedNodeIds.has(nodeId)) {
+        deselectNode(nodeId);
+      }
+    });
+  }, [selectNode, deselectNode]);
 
   // Apply initial layout
   useEffect(() => {
@@ -336,6 +465,8 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onPaneClick={handlePaneClick}
+        onNodeClick={handleNodeClick}
+        onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
@@ -368,88 +499,6 @@ const MyGraphCanvas: React.FC<MyGraphCanvasProps> = ({
           size={1}
           color={theme.palette.divider}
         />
-        
-        {/* Layout Controls Panel */}
-        <Panel position="top-right">
-          <Card sx={{ p: 1, minWidth: 200 }}>
-            <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                Graph Layout
-              </Typography>
-              
-              <ButtonGroup orientation="vertical" size="small" fullWidth>
-                <Button
-                  variant={currentLayout === 'dagre' ? 'contained' : 'outlined'}
-                  startIcon={<AccountTree />}
-                  onClick={() => handleLayoutChange('dagre')}
-                  size="small"
-                >
-                  Hierarchical
-                </Button>
-                <Button
-                  variant={currentLayout === 'circular' ? 'contained' : 'outlined'}
-                  startIcon={<Hub />}
-                  onClick={() => handleLayoutChange('circular')}
-                  size="small"
-                >
-                  Circular
-                </Button>
-                <Button
-                  variant={currentLayout === 'grid' ? 'contained' : 'outlined'}
-                  startIcon={<GridView />}
-                  onClick={() => handleLayoutChange('grid')}
-                  size="small"
-                >
-                  Grid
-                </Button>
-                <Button
-                  variant={currentLayout === 'radial' ? 'contained' : 'outlined'}
-                  startIcon={<ScatterPlot />}
-                  onClick={() => handleLayoutChange('radial')}
-                  size="small"
-                >
-                  Radial
-                </Button>
-                <Button
-                  variant={currentLayout === 'tree' ? 'contained' : 'outlined'}
-                  startIcon={<AccountBalance />}
-                  onClick={() => handleLayoutChange('tree')}
-                  size="small"
-                >
-                  Tree
-                </Button>
-                <Button
-                  variant={currentLayout === 'force' ? 'contained' : 'outlined'}
-                  startIcon={<ViewModule />}
-                  onClick={() => handleLayoutChange('force')}
-                  size="small"
-                >
-                  Force
-                </Button>
-              </ButtonGroup>
-              
-              <Divider sx={{ my: 1 }} />
-              
-              <Tooltip title="Refresh Layout">
-                <Button
-                  onClick={() => applyLayout(currentLayout)}
-                  size="small"
-                  fullWidth
-                  startIcon={<Refresh />}
-                  sx={{ 
-                    border: 1,
-                    borderColor: 'divider',
-                    borderRadius: 1
-                  }}
-                >
-                  <Typography variant="caption">
-                    Refresh
-                  </Typography>
-                </Button>
-              </Tooltip>
-            </CardContent>
-          </Card>
-        </Panel>
 
         {/* Graph Stats Panel */}
         <Panel position="top-left">

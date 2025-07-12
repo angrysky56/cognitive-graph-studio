@@ -1,14 +1,14 @@
 /**
  * Enhanced TreeQuest implementation with AB-MCTS algorithms
- * 
+ *
  * TypeScript implementation of TreeQuest algorithms based on SakanaAI's research:
  * "Wider or Deeper? Scaling LLM Inference-Time Compute with Adaptive Branching Tree Search"
- * 
+ *
  * Implements:
  * - AB-MCTS-A (Adaptive Branching with Node Aggregation)
  * - AB-MCTS-M (Adaptive Branching with Mixed Models)
  * - Multi-LLM support for enhanced reasoning
- * 
+ *
  * @module TreeQuestEnhanced
  */
 
@@ -224,7 +224,7 @@ export class TreeQuestEnhanced {
    */
   topK(tree: ABMCTSTree, k: number): Array<[TreeQuestState, number]> {
     const allNodes = Array.from(tree.nodes.values())
-    
+
     // Sort by average reward
     const sortedNodes = allNodes
       .filter(node => node.visits > 0)
@@ -252,7 +252,7 @@ export class TreeQuestEnhanced {
       for (const childId of currentNode.children) {
         const child = tree.nodes.get(childId)!
         const ucb1 = this.calculateEnhancedUCB1(child, currentNode.visits)
-        
+
         if (ucb1 > bestValue) {
           bestValue = ucb1
           bestChild = child
@@ -283,9 +283,9 @@ export class TreeQuestEnhanced {
     // Adaptive branching factor influence
     const branchingPenalty = Math.log(node.branchingFactor) * 0.05
 
-    return exploitation + 
-           this.config.explorationConstant * exploration + 
-           confidenceBonus - 
+    return exploitation +
+           this.config.explorationConstant * exploration +
+           confidenceBonus -
            branchingPenalty
   }
 
@@ -331,10 +331,10 @@ export class TreeQuestEnhanced {
 
     // Higher confidence = more exploration (wider branching)
     const confidenceFactor = node.confidence >= confidenceThreshold ? 1.5 : 0.8
-    
+
     // Deeper nodes get less branching
     const depthPenalty = Math.max(0.5, 1 - (node.state.metadata.depth * 0.1))
-    
+
     const calculatedBranching = Math.round(
       (minBranching + (maxBranching - minBranching) * confidenceFactor * depthPenalty)
     )
@@ -353,10 +353,10 @@ export class TreeQuestEnhanced {
 
     try {
       const [newState, score] = await actionFn(parent.state)
-      
+
       // Select LLM for ABMCTS-M
       const selectedModel = this.selectLLMForGeneration()
-      
+
       const childNode: ABMCTSNode = {
         id: crypto.randomUUID(),
         parentId: parent.id,
@@ -411,9 +411,9 @@ export class TreeQuestEnhanced {
     const baseReward = node.state.metadata.score
     const explorationBonus = 1.0 / (1.0 + node.visits)
     const confidenceWeight = node.confidence
-    
+
     const reward = (baseReward + explorationBonus) * confidenceWeight
-    
+
     return {
       reward: Math.max(0, Math.min(1, reward)),
       confidence: node.confidence
@@ -430,19 +430,19 @@ export class TreeQuestEnhanced {
       try {
         // Simulate LLM evaluation of the state
         const prompt = `Evaluate the quality of this state: "${node.state.content}"`
-        
+
         const response = await this.aiService.generateText({
           prompt,
-          maxTokens: 100,
+          maxTokens: 8164,
           temperature: 0.1
-        }, { 
+        }, {
           provider: modelConfig.provider as any,
-          model: modelConfig.model 
+          model: modelConfig.model
         })
 
         // Extract numeric score from response (simplified)
         const score = this.extractScoreFromResponse(response.content)
-        
+
         modelResults.push({
           reward: score,
           confidence: response.metadata.confidence || 0.8,
@@ -485,15 +485,15 @@ export class TreeQuestEnhanced {
       // Normalize to 0-1 range
       return Math.max(0, Math.min(1, score > 10 ? score / 100 : score))
     }
-    
+
     // Fallback: sentiment analysis
     const positiveWords = ['good', 'excellent', 'great', 'positive', 'correct']
     const negativeWords = ['bad', 'poor', 'wrong', 'negative', 'incorrect']
-    
+
     const lowerResponse = response.toLowerCase()
     const positiveCount = positiveWords.filter(word => lowerResponse.includes(word)).length
     const negativeCount = negativeWords.filter(word => lowerResponse.includes(word)).length
-    
+
     return Math.max(0.1, 0.5 + (positiveCount - negativeCount) * 0.1)
   }
 
@@ -508,7 +508,7 @@ export class TreeQuestEnhanced {
     // Weighted random selection
     const totalWeight = this.config.multiLLM.models.reduce((sum, model) => sum + model.weight, 0)
     let random = Math.random() * totalWeight
-    
+
     for (const model of this.config.multiLLM.models) {
       random -= model.weight
       if (random <= 0) {
@@ -540,8 +540,8 @@ export class TreeQuestEnhanced {
    */
   shouldTerminate(tree: ABMCTSTree): boolean {
     const elapsed = Date.now() - tree.stats.startTime
-    
-    return elapsed >= this.config.maxTime || 
+
+    return elapsed >= this.config.maxTime ||
            tree.stats.totalSimulations >= this.config.maxSimulations
   }
 
@@ -580,7 +580,7 @@ export class TreeQuestEnhanced {
 
     const mean = childRewards.reduce((sum, r) => sum + r, 0) / childRewards.length
     const variance = childRewards.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / childRewards.length
-    
+
     // Lower variance = higher convergence
     return Math.max(0, 1 - Math.sqrt(variance))
   }

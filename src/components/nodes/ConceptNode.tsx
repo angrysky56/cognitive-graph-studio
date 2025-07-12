@@ -12,15 +12,10 @@ import {
   Card,
   CardContent,
   Typography,
-  IconButton,
   Chip,
-  Tooltip,
 } from '@mui/material';
 import {
   Psychology,
-  Edit,
-  Delete,
-  MoreVert,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { EnhancedGraphNode } from '@/types/enhanced-graph';
@@ -33,12 +28,6 @@ interface ConceptNodeData {
   content: string;
   metadata: EnhancedGraphNode['metadata'];
   aiGenerated: boolean;
-  selected: boolean;
-  onSelect: () => void;
-  onDeselect: () => void;
-  onUpdate: (updates: Partial<EnhancedGraphNode>) => void;
-  onDelete: () => void;
-  onClick: () => void;
 }
 
 /**
@@ -57,31 +46,8 @@ interface ConceptNodeProps extends NodeProps {
 const ConceptNode: React.FC<ConceptNodeProps> = memo(({ data, selected }) => {
   const theme = useTheme();
 
-  const handleEdit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // TODO: Implement inline editing or open edit dialog
-    console.log('Edit concept node:', data.label);
-  };
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    data.onDelete();
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    data.onClick();
-    
-    if (selected) {
-      data.onDeselect();
-    } else {
-      data.onSelect();
-    }
-  };
-
   return (
     <Box
-      onClick={handleClick}
       sx={{
         cursor: 'pointer',
         transition: 'all 0.2s ease-in-out',
@@ -106,7 +72,7 @@ const ConceptNode: React.FC<ConceptNodeProps> = memo(({ data, selected }) => {
         }}
       >
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-          {/* Header with icon and actions */}
+          {/* Header with icon */}
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
             <Psychology sx={{ mr: 1, fontSize: 20 }} />
             <Typography
@@ -121,37 +87,6 @@ const ConceptNode: React.FC<ConceptNodeProps> = memo(({ data, selected }) => {
             >
               {data.label}
             </Typography>
-            
-            {/* Node actions */}
-            <Box sx={{ display: 'flex', gap: 0.5 }}>
-              <Tooltip title="Edit">
-                <IconButton
-                  size="small"
-                  onClick={handleEdit}
-                  sx={{ 
-                    color: 'inherit',
-                    opacity: 0.7,
-                    '&:hover': { opacity: 1 }
-                  }}
-                >
-                  <Edit fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              
-              <Tooltip title="Delete">
-                <IconButton
-                  size="small"
-                  onClick={handleDelete}
-                  sx={{ 
-                    color: 'inherit',
-                    opacity: 0.7,
-                    '&:hover': { opacity: 1, color: theme.palette.error.main }
-                  }}
-                >
-                  <Delete fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
           </Box>
 
           {/* Content preview */}

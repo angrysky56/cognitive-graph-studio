@@ -1,15 +1,15 @@
 /**
  * Advanced AI Agents: Workflow and Critique agents
- * 
+ *
  * Extends the AI agent system with workflow orchestration and content refinement
  * capabilities for autonomous graph management and quality assurance.
- * 
+ *
  * @module AdvancedAIAgents
  */
 
-import { 
-  AIAgent, 
-  AgentContext, 
+import {
+  AIAgent,
+  AgentContext,
   AgentResult,
   TreeQuestContext,
   TreeQuestResult
@@ -101,7 +101,7 @@ export interface WorkflowExecutionContext {
 
 /**
  * Workflow agent for orchestrating complex multi-step processes
- * 
+ *
  * Implements the "Workflow Agents: Traverse a defined path of nodes, execute actions,
  * and update node status" concept with TreeQuest-enhanced decision making.
  */
@@ -112,7 +112,7 @@ export class WorkflowAgent implements AIAgent {
   constructor(
     // @ts-ignore - Reserved for future AI service integration
     private _aiService: IAIService,
-    // @ts-ignore - Reserved for future vector search integration  
+    // @ts-ignore - Reserved for future vector search integration
     private _vectorService: IVectorService,
     private treeQuestService: ITreeQuestService
   ) {
@@ -200,7 +200,7 @@ export class WorkflowAgent implements AIAgent {
     try {
       while (context.currentStep < context.workflow.steps.length) {
         const step = context.workflow.steps[context.currentStep]
-        
+
         // Check step condition
         if (step.condition && !this.evaluateCondition(step.condition, context.state)) {
           context.currentStep++
@@ -209,7 +209,7 @@ export class WorkflowAgent implements AIAgent {
 
         // Prepare step context
         const stepContext = this.prepareStepContext(step, context)
-        
+
         // Use TreeQuest for step optimization if complex decision required
         if (this.requiresTreeQuestOptimization(step)) {
           const optimizedExecution = await this.optimizeStepWithTreeQuest(step, stepContext)
@@ -221,14 +221,14 @@ export class WorkflowAgent implements AIAgent {
 
         // Execute step with retry logic
         const stepResult = await this.executeStepWithRetry(step, stepContext)
-        
+
         // Store result and update state
         context.stepResults.set(step.id, stepResult)
         this.updateExecutionState(context, step, stepResult)
-        
+
         // Track metrics
         stepMetrics[step.id] = stepResult.metadata.confidence
-        
+
         // Collect actions
         if (stepResult.actions.nodesCreated) {
           nodesCreated.push(...stepResult.actions.nodesCreated)
@@ -280,7 +280,7 @@ export class WorkflowAgent implements AIAgent {
    */
   private requiresTreeQuestOptimization(step: WorkflowStep): boolean {
     // Use TreeQuest for complex steps with multiple possible paths
-    return step.agentType === 'discovery' || 
+    return step.agentType === 'discovery' ||
            step.condition !== undefined ||
            step.retry.maxAttempts > 1
   }
@@ -289,7 +289,7 @@ export class WorkflowAgent implements AIAgent {
    * Optimize step execution using TreeQuest reasoning
    */
   private async optimizeStepWithTreeQuest(
-    step: WorkflowStep, 
+    step: WorkflowStep,
     stepContext: AgentContext
   ): Promise<TreeQuestResult> {
     const treeQuestContext: TreeQuestContext = {
@@ -344,18 +344,18 @@ export class WorkflowAgent implements AIAgent {
    */
   private async executeStepWithRetry(step: WorkflowStep, context: AgentContext): Promise<AgentResult> {
     let lastError: Error | null = null
-    
+
     for (let attempt = 1; attempt <= step.retry.maxAttempts; attempt++) {
       try {
         // Simulate agent execution (would integrate with actual agent manager)
         const result = await this.simulateAgentExecution(step, context)
-        
+
         if (result.success) {
           return result
         } else {
           lastError = new Error(result.error || 'Step execution failed')
         }
-        
+
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown error')
       }
@@ -433,13 +433,13 @@ export class WorkflowAgent implements AIAgent {
       const field = fieldPath.substring(6)
       return context.state[field]
     }
-    
+
     if (fieldPath.startsWith('step.')) {
       const [, stepId, field] = fieldPath.split('.')
       const stepResult = context.stepResults.get(stepId)
       return stepResult?.data?.[field]
     }
-    
+
     return fieldPath
   }
 
@@ -447,8 +447,8 @@ export class WorkflowAgent implements AIAgent {
    * Update execution state after step completion
    */
   private updateExecutionState(
-    context: WorkflowExecutionContext, 
-    step: WorkflowStep, 
+    context: WorkflowExecutionContext,
+    step: WorkflowStep,
     result: AgentResult
   ): void {
     // Apply output mapping
@@ -472,7 +472,7 @@ export class WorkflowAgent implements AIAgent {
     if (!condition) return true
 
     const value = state[condition.field]
-    
+
     switch (condition.operator) {
       case 'eq': return value === condition.value
       case 'neq': return value !== condition.value
@@ -489,9 +489,9 @@ export class WorkflowAgent implements AIAgent {
   private evaluateSuccessCriteria(context: WorkflowExecutionContext): boolean {
     for (const criterion of context.workflow.successCriteria) {
       const value = context.state[criterion.metric]
-      
+
       if (value === undefined) return false
-      
+
       switch (criterion.operator) {
         case 'gt': if (!(value > criterion.threshold)) return false; break
         case 'lt': if (!(value < criterion.threshold)) return false; break
@@ -500,7 +500,7 @@ export class WorkflowAgent implements AIAgent {
         case 'lte': if (!(value <= criterion.threshold)) return false; break
       }
     }
-    
+
     return true
   }
 
@@ -509,9 +509,9 @@ export class WorkflowAgent implements AIAgent {
    */
   private calculateWorkflowConfidence(context: WorkflowExecutionContext): number {
     const results = Array.from(context.stepResults.values())
-    
+
     if (results.length === 0) return 0
-    
+
     const totalConfidence = results.reduce((sum, result) => sum + result.metadata.confidence, 0)
     return totalConfidence / results.length
   }
@@ -519,8 +519,8 @@ export class WorkflowAgent implements AIAgent {
 
 /**
  * Critique agent for content quality assurance and improvement
- * 
- * Implements the "Critique/Refinement Agents: Review generated content or 
+ *
+ * Implements the "Critique/Refinement Agents: Review generated content or
  * proposed links for accuracy and relevance" concept with comprehensive analysis.
  */
 export class CritiqueAgent implements AIAgent {
@@ -542,7 +542,7 @@ export class CritiqueAgent implements AIAgent {
     try {
       const nodeId = context.targetNodeId
       const edgeId = context.targetEdgeId
-      
+
       if (!nodeId && !edgeId) {
         throw new Error('Target node ID or edge ID required for critique')
       }
@@ -685,14 +685,14 @@ Analyze:
 Format as JSON with validityScore, strengthScore, issues array, and recommendations array.`,
       format: 'json',
       temperature: 0.2,
-      maxTokens: 1000
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
-      
+
       return {
         edgeId,
         overallScore: (analysis.validityScore + analysis.strengthScore) / 2,
@@ -736,11 +736,11 @@ Provide an accuracy score (0-1) and list any issues found.
 Format as JSON with score and issues array.`,
       format: 'json',
       temperature: 0.1,
-      maxTokens: 800
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
       return {
@@ -780,11 +780,11 @@ Identify:
 Format as JSON with score and missingTopics array.`,
       format: 'json',
       temperature: 0.2,
-      maxTokens: 600
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
       return {
@@ -807,7 +807,7 @@ Format as JSON with score and missingTopics array.`,
     clarityIssues: string[]
   }> {
     const readabilityMetrics = this.calculateReadabilityMetrics(content)
-    
+
     const request: LLMRequest = {
       prompt: `Analyze the clarity of this content:
 
@@ -825,11 +825,11 @@ Provide clarity score (0-1) and list specific clarity issues.
 Format as JSON with score and clarityIssues array.`,
       format: 'json',
       temperature: 0.2,
-      maxTokens: 500
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
       return {
@@ -868,11 +868,11 @@ Provide relevance score (0-1) and list any relevance issues.
 Format as JSON with score and relevanceIssues array.`,
       format: 'json',
       temperature: 0.2,
-      maxTokens: 500
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
       return {
@@ -917,11 +917,11 @@ Provide consistency score (0-1) and list inconsistencies found.
 Format as JSON with score and inconsistencies array.`,
       format: 'json',
       temperature: 0.1,
-      maxTokens: 600
+      maxTokens: 8164
     }
 
     const response = await this.aiService.generateText(request)
-    
+
     try {
       const analysis = JSON.parse(response.content)
       return {
@@ -947,11 +947,11 @@ Format as JSON with score and inconsistencies array.`,
   } {
     const words = content.split(/\s+/).filter(word => word.length > 0)
     const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0)
-    
+
     const wordCount = words.length
     const sentenceCount = sentences.length
     const avgWordsPerSentence = sentenceCount > 0 ? wordCount / sentenceCount : 0
-    
+
     // Simple syllable estimation
     const avgSyllablesPerWord = words.reduce((sum, word) => {
       const syllables = word.toLowerCase().replace(/[^aeiou]/g, '').length || 1

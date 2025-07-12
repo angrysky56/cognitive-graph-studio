@@ -25,6 +25,7 @@ import {
   GraphOperationResult,
   GraphStateChangeEvent
 } from '../core/GraphEngine'
+import { SavedGraph } from '../services/graph-persistence-service'
 
 /**
  * Enhanced graph store state interface
@@ -78,6 +79,9 @@ interface EnhancedGraphState {
   // Engine reference
   engine: IGraphEngine | null
   
+  // Internal flags
+  isSync: boolean
+  
   // Actions
   initializeEngine: (config: GraphEngineConfig) => Promise<void>
   
@@ -121,6 +125,7 @@ interface EnhancedGraphState {
   // Utility operations
   exportGraph: (format: 'json' | 'graphml' | 'cytoscape' | 'gephi', options?: any) => Promise<string>
   importGraph: (data: string, format: 'json' | 'graphml' | 'cytoscape', userContext?: any) => Promise<GraphOperationResult>
+  loadGraph: (graph: SavedGraph) => void
   
   // Internal state management
   syncWithEngine: () => void
@@ -169,6 +174,7 @@ const useEnhancedGraphStore = create<EnhancedGraphState>()(
           averageConfidence: 0
         },
         engine: null,
+        isSync: false,
 
         // Initialize GraphEngine
         initializeEngine: async (config: GraphEngineConfig) => {
@@ -623,6 +629,28 @@ const useEnhancedGraphStore = create<EnhancedGraphState>()(
           })
         },
 
+        // Graph loading
+        loadGraph: (graph: SavedGraph) => {
+          set({
+            nodes: graph.nodes,
+            edges: graph.edges,
+            clusters: graph.clusters,
+            selectedNodes: new Set(),
+            selectedEdges: new Set(),
+            hoveredNode: null,
+            hoveredEdge: null,
+            statistics: {
+              nodeCount: graph.nodes.size,
+              edgeCount: graph.edges.size,
+              clusterCount: graph.clusters.size,
+              lastModified: graph.metadata.modified,
+              totalOperations: 0,
+              averageConfidence: 0
+            }
+          })
+          console.log(`Loaded graph: ${graph.metadata.title}`)
+        },
+
         // Hover operations
         setHoveredNode: (nodeId: string | null) => {
           set({ hoveredNode: nodeId })
@@ -721,31 +749,43 @@ const useEnhancedGraphStore = create<EnhancedGraphState>()(
         // Internal state management
         syncWithEngine: () => {
           const state = get()
-          if (!state.engine) return
+          if (!state.engine || state.isSync) return
 
-          const graphState = state.engine.getGraphState()
-          
-          // Calculate average confidence
-          const confidenceValues = Array.from(graphState.nodes.values())
-            .map(node => node.aiMetadata.confidenceScore)
-          
-          const averageConfidence = confidenceValues.length > 0 
-            ? confidenceValues.reduce((sum, conf) => sum + conf, 0) / confidenceValues.length
-            : 0
+          // Set sync flag to prevent re-entrant calls
+          set({ isSync: true })
 
-          set({
-            nodes: graphState.nodes,
-            edges: graphState.edges,
-            clusters: graphState.clusters,
-            statistics: {
-              ...graphState.statistics,
-              averageConfidence
-            }
-          })
+          try {
+            const graphState = state.engine.getGraphState()
+            
+            // Calculate average confidence
+            const confidenceValues = Array.from(graphState.nodes.values())
+              .map(node => node.aiMetadata.confidenceScore)
+            
+            const averageConfidence = confidenceValues.length > 0 
+              ? confidenceValues.reduce((sum, conf) => sum + conf, 0) / confidenceValues.length
+              : 0
+
+            set({
+              nodes: graphState.nodes,
+              edges: graphState.edges,
+              clusters: graphState.clusters,
+              statistics: {
+                ...graphState.statistics,
+                averageConfidence
+              },
+              isSync: false
+            })
+          } catch (error) {
+            console.error('Sync with engine failed:', error)
+            set({ isSync: false })
+          }
         },
 
         handleEngineEvent: (event: GraphStateChangeEvent) => {
           const state = get()
+          
+          // Prevent handling events during sync to avoid infinite loops
+          if (state.isSync) return
           
           // Update UI based on engine events
           switch (event.type) {
@@ -756,7 +796,13 @@ const useEnhancedGraphStore = create<EnhancedGraphState>()(
             case 'edge-updated':
             case 'edge-removed':
             case 'cluster-updated':
-              state.syncWithEngine()
+              // Use a timeout to debounce rapid events
+              setTimeout(() => {
+                const currentState = get()
+                if (!currentState.isSync) {
+                  currentState.syncWithEngine()
+                }
+              }, 10)
               break
               
             case 'search-completed':

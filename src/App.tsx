@@ -3,14 +3,13 @@
  * AI-powered knowledge graph visualization with Material UI
  */
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { ThemeProvider, CssBaseline } from '@mui/material'
-import { 
-  Box, 
-  AppBar, 
-  Toolbar, 
-  Typography, 
-  Alert, 
+import {
+  Box,
+  AppBar,
+  Toolbar,
+  Typography,
   Tabs,
   Tab,
   Paper,
@@ -22,22 +21,29 @@ import {
   Psychology as AIIcon,
   CloudUpload as ImportIcon,
   Analytics as AnalyticsIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Folder as SavedIcon,
+  ChevronLeft,
+  ChevronRight,
+  Tune as LayoutIcon
 } from '@mui/icons-material'
 import cognitiveTheme from '@/utils/theme'
 
 // Components
 import MyGraphCanvas from '@/components/MyGraphCanvas'
-import AIPanel from '@/components/AIPanel'
-import EnhancedDocumentImporter from '@/components/DocumentImporter'
+import EnhancedAIPanel from '@/components/EnhancedAIPanel'
+import EnhancedDocumentImporter from '@/components/EnhancedDocumentImporter'
 import NetworkAnalysis from '@/components/NetworkAnalysis'
-import NodeEditor from '@/components/NodeEditor'
+import NodeEditorPanel from '@/components/NodeEditorPanel'
 import SettingsDialog from '@/components/SettingsDialog'
+import SavedGraphs from '@/components/SavedGraphs'
+import GraphLayoutControls, { LayoutAlgorithm, LayoutDirection } from '@/components/GraphLayoutControls'
 
 // Services and Stores
 import useEnhancedGraphStore from '@/stores/enhancedGraphStore'
 import { LLMConfig } from '@/services/ai-service'
 import { GraphEngineConfig } from '@/core/GraphEngine'
+import { SavedGraph } from '@/services/graph-persistence-service'
 
 
 interface TabPanelProps {
@@ -46,78 +52,72 @@ interface TabPanelProps {
   value: number
 }
 
+// TabPanel component for handling tab content visibility and styling
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
-  <div
+  <Box
     role="tabpanel"
     hidden={value !== index}
-    style={{ height: value === index ? 'calc(100vh - 160px)' : 0, overflow: 'auto', padding: value === index ? 16 : 0 }}
+    sx={{
+      height: value === index ? 'calc(100vh - 160px)' : 0,
+      overflow: 'auto',
+      p: value === index ? 2 : 0
+    }}
   >
     {value === index && children}
-  </div>
+  </Box>
 )
 
 const App: React.FC = () => {
-  const [leftPanelWidth, setLeftPanelWidth] = useState(320);
-  const [rightPanelWidth, setRightPanelWidth] = useState(400);
-  const [isResizingLeft, setIsResizingLeft] = useState(false);
-  const [isResizingRight, setIsResizingRight] = useState(false);
+  const leftPanelWidth = 320;
+  const rightPanelWidth = 400;
 
-  const handleMouseDown = (panel: 'left' | 'right') => {
-    if (panel === 'left') {
-      setIsResizingLeft(true);
-    } else {
-      setIsResizingRight(true);
-    }
-  };
+  // Debug: Check if environment variables are loaded
+  console.log('🔑 Environment Variables Check:')
+  console.log('Gemini API Key:', import.meta.env.VITE_GEMINI_API_KEY ? '✅ Set' : '❌ Missing')
+  console.log('OpenAI API Key:', import.meta.env.VITE_OPENAI_API_KEY ? '✅ Set' : '❌ Missing')
+  console.log('Anthropic API Key:', import.meta.env.VITE_ANTHROPIC_API_KEY ? '✅ Set' : '❌ Missing')
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (isResizingLeft) {
-      setLeftPanelWidth(Math.max(200, Math.min(600, e.clientX)));
-    } else if (isResizingRight) {
-      setRightPanelWidth(Math.max(300, Math.min(800, window.innerWidth - e.clientX)));
-    }
-  }, [isResizingLeft, isResizingRight]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsResizingLeft(false);
-    setIsResizingRight(false);
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [handleMouseMove, handleMouseUp]);
   const [activeTab, setActiveTab] = useState(0)
-  const [aiConfig, setAiConfig] = useState<LLMConfig | null>(null)
-  const [showWelcome, setShowWelcome] = useState(true)
+  const [aiService, setAiService] = useState<any>(null)
   const [showSettings, setShowSettings] = useState(false)
-  
+
+  // Panel collapse state
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [leftPanelExpanded, setLeftPanelExpanded] = useState(false)
+  const [rightPanelExpanded, setRightPanelExpanded] = useState(false)
+  const [layoutTrigger, setLayoutTrigger] = useState<{
+    algorithm: LayoutAlgorithm;
+    direction?: LayoutDirection;
+    timestamp: number;
+  } | null>(null)
+
   const {
     nodes,
     edges,
     clusters,
     selectedNodes,
     createNode,
-    createEdge,
-    clearSelection,
     initializeEngine,
-    engine
+    engine,
+    loadGraph
   } = useEnhancedGraphStore()
 
+  const aiConfig = useMemo(() => ({
+    provider: 'gemini' as const,
+    apiKey: import.meta.env.VITE_GEMINI_API_KEY || 'demo-key',
+    model: 'gemini-1.5-flash',
+    temperature: 0.7,
+    maxTokens: 4000
+  }), [])
+
   useEffect(() => {
-    const config: LLMConfig = {
-      provider: 'gemini',
-      apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-      model: 'gemini-1.5-flash',
-      temperature: 0.7,
-      maxTokens: 1000
-    }
-    setAiConfig(config)
-  }, [])
+    // Create AI service instance
+    import('@/services/ai-service').then(({ AIService }) => {
+      const service = new AIService([aiConfig])
+      setAiService(service)
+    })
+  }, [aiConfig])
 
   useEffect(() => {
     const initialize = async () => {
@@ -139,14 +139,11 @@ const App: React.FC = () => {
           }
         },
         treeQuest: {
-          algorithm: 'standard-mcts',
-          maxDepth: 5,
-          timeLimit: 30,
-          simulations: 100,
+          enabled: true,
+          algorithm: 'abmcts-a',
           explorationConstant: 1.0,
-          llmConfigs: [],
-          adaptiveBranching: false,
-          confidenceThreshold: 0.5
+          maxTime: 30000,
+          maxSimulations: 100
         },
         visualization: {
           renderer: {
@@ -203,9 +200,9 @@ const App: React.FC = () => {
     if (aiConfig && !engine) {
       initialize()
     }
-  }, [aiConfig, engine, initializeEngine])
+  }, [aiConfig, initializeEngine, engine])
 
-  
+
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
@@ -220,15 +217,64 @@ const App: React.FC = () => {
   }
 
   const handleSettingsSave = (config: LLMConfig) => {
-    setAiConfig(config)
     console.log('AI Config updated:', config)
+    // TODO: Implement dynamic AI config updates
+  }
+
+  const handleGraphLoad = (graph: SavedGraph) => {
+    if (loadGraph) {
+      loadGraph(graph)
+      console.log('Graph loaded:', graph.metadata.title)
+    }
+  }
+
+  const handleLayoutChange = (algorithm: LayoutAlgorithm, direction?: LayoutDirection) => {
+    console.log('Layout change requested:', algorithm, direction)
+    setLayoutTrigger({
+      algorithm,
+      direction,
+      timestamp: Date.now()
+    })
+  }
+
+  const toggleLeftPanel = () => {
+    setLeftPanelCollapsed(!leftPanelCollapsed)
+    setLeftPanelExpanded(false)
+    setRightPanelExpanded(false)
+  }
+
+  const toggleRightPanel = () => {
+    setRightPanelCollapsed(!rightPanelCollapsed)
+    setLeftPanelExpanded(false)
+    setRightPanelExpanded(false)
+  }
+
+  const expandLeftPanel = () => {
+    setLeftPanelExpanded(true)
+    setLeftPanelCollapsed(false)
+    setRightPanelCollapsed(true)
+    setRightPanelExpanded(false)
+  }
+
+  const expandRightPanel = () => {
+    setRightPanelExpanded(true)
+    setRightPanelCollapsed(false)
+    setLeftPanelCollapsed(true)
+    setLeftPanelExpanded(false)
+  }
+
+  const collapseAllPanels = () => {
+    setLeftPanelExpanded(false)
+    setRightPanelExpanded(false)
+    setLeftPanelCollapsed(false)
+    setRightPanelCollapsed(false)
   }
 
   return (
     <ThemeProvider theme={cognitiveTheme}>
       <CssBaseline />
       <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        
+
         {/* Header */}
         <AppBar position="static" elevation={1}>
           <Toolbar>
@@ -247,159 +293,251 @@ const App: React.FC = () => {
           </Toolbar>
         </AppBar>
 
-        {/* Welcome Message */}
-        {showWelcome && (
-          <Alert 
-            severity="info" 
-            onClose={() => setShowWelcome(false)}
-            sx={{ borderRadius: 0 }}
-          >
-            <Typography variant="body2">
-              🎯 <strong>Core functionality active!</strong> Interactive graph with node selection, drag, zoom, and editing. 
-              Try clicking and dragging nodes, or double-click to edit!
-            </Typography>
-          </Alert>
-        )}
-
         {/* Main Content */}
         <Box sx={{ flexGrow: 1, display: 'flex', height: 'calc(100vh - 64px)' }}>
-          
-          {/* Left Panel - Node Editor (when node selected) */}
-          {selectedNodes.size === 1 && (
-            <Paper sx={{
-              width: leftPanelWidth,
-              minWidth: '200px',
-              maxWidth: '600px',
-              borderRadius: 0,
-              borderRight: 1,
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              resize: 'horizontal',
-              overflowX: 'auto'
-            }}>
-              <Box sx={{ 
-                p: 2, 
-                borderBottom: 1, 
+
+          {/* Left Panel - Collapsible Node Editor */}
+          <Box sx={{
+            width: leftPanelExpanded ? '100%' :
+                   leftPanelCollapsed ? '40px' : leftPanelWidth,
+            minWidth: leftPanelCollapsed ? '40px' : '300px',
+            maxWidth: leftPanelExpanded ? '100%' :
+                      leftPanelCollapsed ? '40px' : '600px',
+            transition: 'width 0.3s ease',
+            display: 'flex',
+            flexDirection: 'row',
+            height: '100%'
+          }}>
+            {leftPanelCollapsed ? (
+              <Box sx={{
+                width: '40px',
+                height: '100%',
+                borderRight: 1,
                 borderColor: 'divider',
-                backgroundColor: 'primary.main',
-                color: 'primary.contrastText'
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                backgroundColor: 'background.paper'
               }}>
-                <Typography variant="h6">
-                  Node Editor
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  Editing selected node
-                </Typography>
+                <Tooltip title="Expand Node Editor" placement="right">
+                  <IconButton
+                    size="small"
+                    onClick={toggleLeftPanel}
+                    sx={{ mt: 1, mb: 1 }}
+                  >
+                    <ChevronRight />
+                  </IconButton>
+                </Tooltip>
               </Box>
-              <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
-                <NodeEditor
-                  visible={true}
-                  onClose={() => clearSelection()}
-                />
-              </Box>
-            </Paper>
-          )}
-
-          {/* Resizer for Left Panel */}
-          {selectedNodes.size === 1 && (
-            <Box
-              sx={{
-                width: '8px',
-                cursor: 'ew-resize',
-                bgcolor: 'divider',
-                '&:hover': { bgcolor: 'primary.main' },
-                transition: 'background-color 0.2s',
-              }}
-              onMouseDown={() => handleMouseDown('left')}
-            />
-          )}
-
-          {/* Graph Canvas - Center/Main Area */}
-          <Box sx={{ flexGrow: 1, position: 'relative' }}>
-            <MyGraphCanvas />
+            ) : (
+              <Paper sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: 0,
+                borderRight: leftPanelExpanded ? 0 : 1,
+                borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
+                <Box sx={{
+                  p: 2,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  backgroundColor: 'primary.main',
+                  color: 'primary.contrastText',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <Box>
+                    <Typography variant="h6">
+                      Node Editor
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                      AI-Enhanced Editing
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    {!leftPanelExpanded && (
+                      <Tooltip title="Expand to full width">
+                        <IconButton size="small" onClick={expandLeftPanel} sx={{ color: 'inherit' }}>
+                          <ChevronRight />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {leftPanelExpanded && (
+                      <Tooltip title="Restore normal view">
+                        <IconButton size="small" onClick={collapseAllPanels} sx={{ color: 'inherit' }}>
+                          <ChevronLeft />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="Collapse panel">
+                      <IconButton size="small" onClick={toggleLeftPanel} sx={{ color: 'inherit' }}>
+                        <ChevronLeft />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+                <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+                  <NodeEditorPanel aiService={aiService} />
+                </Box>
+              </Paper>
+            )}
           </Box>
 
-          {/* Right Panel */}
-          <Paper sx={{
-            width: rightPanelWidth,
-            minWidth: '300px',
-            maxWidth: '800px',
-            borderRadius: 0,
-            borderLeft: 1,
-            borderColor: 'divider',
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            overflow: 'hidden',
-            resize: 'horizontal',
-            overflowX: 'auto'
-          }}>
-            <Tabs
-              value={activeTab}
-              onChange={handleTabChange}
-              variant="scrollable"
-              scrollButtons="auto"
-              sx={{ 
-                borderBottom: 1, 
-                borderColor: 'divider',
-                flexShrink: 0
-              }}
-            >
-              <Tab icon={<AIIcon />} label="AI Assistant" iconPosition="start" />
-              <Tab icon={<ImportIcon />} label="Import" iconPosition="start" />
-              <Tab icon={<AnalyticsIcon />} label="Analysis" iconPosition="start" />
-            </Tabs>
-
-            <Box sx={{ 
-              flexGrow: 1, 
-              overflow: 'auto',
-            }}>
-              <TabPanel value={activeTab} index={0}>
-                {aiConfig && (
-                  <AIPanel
-                    nodes={nodes}
-                    edges={edges}
-                    clusters={clusters}
-                    selectedNodes={selectedNodes}
-                    onNodeCreate={createNode}
-                    aiConfig={aiConfig}
-                  />
-                )}
-              </TabPanel>
-
-              <TabPanel value={activeTab} index={1}>
-                <EnhancedDocumentImporter
-                  onNodesCreated={(newNodes) => newNodes.forEach(createNode)}
-                  onEdgesCreated={(newEdges) => newEdges.forEach(createEdge)}
-                  onImportComplete={(result) => {
-                    console.log('Import completed:', result)
-                  }}
-                />
-              </TabPanel>
-
-              <TabPanel value={activeTab} index={2}>
-                <NetworkAnalysis
-                  nodes={nodes}
-                  edges={edges}
-                  clusters={clusters}
-                />
-              </TabPanel>
+          {/* Graph Canvas - Center/Main Area */}
+          {!leftPanelExpanded && !rightPanelExpanded && (
+            <Box sx={{ flexGrow: 1, position: 'relative', minWidth: 0, height: '100%' }}>
+              <MyGraphCanvas layoutTrigger={layoutTrigger || undefined} />
             </Box>
-          </Paper>
+          )}
 
-          {/* Resizer for Right Panel */}
-          <Box
-            sx={{
-              width: '8px',
-              cursor: 'ew-resize',
-              bgcolor: 'divider',
-              '&:hover': { bgcolor: 'primary.main' },
-              transition: 'background-color 0.2s',
-            }}
-            onMouseDown={() => handleMouseDown('right')}
-          />
+          {/* Right Panel - Collapsible Controls */}
+          <Box sx={{
+            width: rightPanelExpanded ? '100%' :
+                   rightPanelCollapsed ? '40px' : rightPanelWidth,
+            minWidth: rightPanelCollapsed ? '40px' : '300px',
+            maxWidth: rightPanelExpanded ? '100%' :
+                      rightPanelCollapsed ? '40px' : '800px',
+            transition: 'width 0.3s ease',
+            display: 'flex',
+            flexDirection: 'row',
+            height: '100%'
+          }}>
+            {rightPanelCollapsed ? (
+              <Box sx={{
+                width: '40px',
+                height: '100%',
+                borderLeft: 1,
+                borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                backgroundColor: 'background.paper'
+              }}>
+                <Tooltip title="Expand Controls Panel" placement="left">
+                  <IconButton
+                    size="small"
+                    onClick={toggleRightPanel}
+                    sx={{ mt: 1, mb: 1 }}
+                  >
+                    <ChevronLeft />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ) : (
+              <Paper sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: 0,
+                borderLeft: rightPanelExpanded ? 0 : 1,
+                borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Tabs
+                    value={activeTab}
+                    onChange={handleTabChange}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                    sx={{
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Tab icon={<AIIcon />} label="AI Assistant" iconPosition="start" />
+                    <Tab icon={<ImportIcon />} label="Import" iconPosition="start" />
+                    <Tab icon={<AnalyticsIcon />} label="Analysis" iconPosition="start" />
+                    <Tab icon={<LayoutIcon />} label="Layout" iconPosition="start" />
+                    <Tab icon={<SavedIcon />} label="Saved Graphs" iconPosition="start" />
+                  </Tabs>
+
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    pl: 1,
+                    pr: 1,
+                    py: 0.5,
+                    borderBottom: 1,
+                    borderColor: 'divider'
+                  }}>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {!rightPanelExpanded && (
+                        <Tooltip title="Expand to full width">
+                          <IconButton size="small" onClick={expandRightPanel}>
+                            <ChevronLeft />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {rightPanelExpanded && (
+                        <Tooltip title="Restore normal view">
+                          <IconButton size="small" onClick={collapseAllPanels}>
+                            <ChevronRight />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+                    <Tooltip title="Collapse panel">
+                      <IconButton size="small" onClick={toggleRightPanel}>
+                        <ChevronRight />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+
+                <Box sx={{
+                  flexGrow: 1,
+                  overflow: 'auto'
+                }}>
+                  <TabPanel value={activeTab} index={0}>
+                    {aiConfig && (
+                      <EnhancedAIPanel
+                        nodes={nodes}
+                        edges={edges}
+                        clusters={clusters}
+                        selectedNodes={selectedNodes}
+                        onNodeCreate={createNode}
+                        aiConfig={aiConfig}
+                      />
+                    )}
+                  </TabPanel>
+
+                  <TabPanel value={activeTab} index={1}>
+                    <EnhancedDocumentImporter />
+                  </TabPanel>
+
+                  <TabPanel value={activeTab} index={2}>
+                    <NetworkAnalysis
+                      nodes={nodes}
+                      edges={edges}
+                      clusters={clusters}
+                    />
+                  </TabPanel>
+
+                  <TabPanel value={activeTab} index={3}>
+                    <Box sx={{ p: 2 }}>
+                      <GraphLayoutControls
+                        onLayoutChange={handleLayoutChange}
+                        currentLayout="dagre"
+                      />
+                    </Box>
+                  </TabPanel>
+
+                  <TabPanel value={activeTab} index={4}>
+                    <SavedGraphs
+                      onGraphLoad={handleGraphLoad}
+                    />
+                  </TabPanel>
+                </Box>
+              </Paper>
+            )}
+          </Box>
         </Box>
 
         {/* Settings Dialog */}

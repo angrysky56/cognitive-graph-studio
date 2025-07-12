@@ -1,220 +1,179 @@
 /**
- * AI Service UI Integration Functions
- * 
- * Provides direct functions that can be called from UI components
- * to interact with the AI service for graph operations.
- */
-
-/**
- * Core AI service for multi-LLM integration
- * 
- * Implements the "AI agents that can traverse and process information" concept
- * from the project blueprint. Supports multiple LLM providers (Gemini, OpenAI, Local)
- * with unified interface for cognitive graph processing.
- * 
+ * @fileoverview Enhanced AI service manager supporting Gemini, OpenAI, Anthropic, and local models
+ * with robust error handling, connection testing, and a unified interface for graph operations.
  * @module AIService
  */
 
-/**
- * Supported LLM providers for the cognitive graph studio
- */
-export type LLMProvider = 'gemini' | 'openai' | 'anthropic' | 'local-ollama' | 'local-lm-studio'
+import {
+  LLMProvider,
+  LLMConfig,
+  LLMRequest,
+  LLMResponse,
+  EmbeddingRequest,
+  EmbeddingResponse,
+  IAIService,
+  ConnectionTestResult,
+} from '@/types/ai'
 
-/**
- * LLM configuration for provider connection
- */
-export interface LLMConfig {
-  provider: LLMProvider
-  apiKey?: string
-  baseUrl?: string
-  model: string
-  temperature?: number
-  maxTokens?: number
-  timeout?: number
+// Re-export types for backward compatibility
+export type {
+  LLMProvider,
+  LLMConfig,
+  LLMRequest,
+  LLMResponse,
+  EmbeddingRequest,
+  EmbeddingResponse,
+  IAIService,
+  ConnectionTestResult,
 }
 
 /**
- * LLM request parameters for text generation
+ * Enhanced AI service configuration interface
  */
-export interface LLMRequest {
-  prompt: string
-  systemPrompt?: string
-  context?: string[]
-  temperature?: number
-  maxTokens?: number
-  format?: 'text' | 'json'
+interface AIServiceConfig {
+  retryAttempts: number
+  timeoutMs: number
+  rateLimitDelay: number
 }
 
 /**
- * LLM response with metadata
- */
-export interface LLMResponse {
-  content: string
-  metadata: {
-    model: string
-    provider: LLMProvider
-    tokens: {
-      input: number
-      output: number
-      total: number
-    }
-    latency: number
-    confidence?: number
-  }
-  error?: string
-}
-
-/**
- * Embedding generation request
- */
-export interface EmbeddingRequest {
-  text: string
-  model?: string
-}
-
-/**
- * Embedding response
- */
-export interface EmbeddingResponse {
-  embedding: number[]
-  dimensions: number
-  model: string
-  tokens: number
-}
-
-/**
- * Multi-LLM service interface for cognitive graph AI operations
- * 
- * Provides unified access to different LLM providers while maintaining
- * provider-specific optimizations and capabilities.
- */
-export interface IAIService {
-  /**
-   * Generate text completion using specified LLM provider
-   * @param request - LLM request parameters
-   * @param config - Optional provider configuration override
-   * @returns Promise resolving to LLM response
-   */
-  generateText(request: LLMRequest, config?: Partial<LLMConfig>): Promise<LLMResponse>
-
-  /**
-   * Generate embeddings for semantic search
-   * @param request - Embedding request parameters
-   * @param config - Optional provider configuration override
-   * @returns Promise resolving to embedding vector
-   */
-  generateEmbedding(request: EmbeddingRequest, config?: Partial<LLMConfig>): Promise<EmbeddingResponse>
-
-  /**
-   * Test connectivity to LLM provider
-   * @param provider - Provider to test
-   * @returns Promise resolving to connection status
-   */
-  testConnection(provider: LLMProvider): Promise<boolean>
-
-  /**
-   * Get available models for provider
-   * @param provider - Provider to query
-   * @returns Promise resolving to available model list
-   */
-  getAvailableModels(provider: LLMProvider): Promise<string[]>
-
-  /**
-   * Calculate semantic similarity between texts
-   * @param text1 - First text for comparison
-   * @param text2 - Second text for comparison
-   * @returns Promise resolving to similarity score (0-1)
-   */
-  calculateSimilarity(text1: string, text2: string): Promise<number>
-}
-
-/**
- * AI service implementation with multi-provider support
- * 
- * Handles connection management, request routing, and response normalization
- * across different LLM providers for cognitive graph operations.
+ * AI service implementation with multi-provider support, robust error handling, and connection management.
+ * Handles connection management, request routing, and response normalization across different LLM providers.
  */
 export class AIService implements IAIService {
   private providers: Map<LLMProvider, LLMConfig> = new Map()
-  private defaultProvider: LLMProvider = 'gemini'
+  private activeProvider: LLMProvider = 'gemini'
   private embeddingCache: Map<string, EmbeddingResponse> = new Map()
+  private config: AIServiceConfig
+  private connectionStatus: Map<LLMProvider, ConnectionTestResult> = new Map()
 
   /**
-   * Initialize AI service with provider configurations
+   * Initialize AI service with provider configurations and performs initial health checks.
    * @param configs - Array of LLM provider configurations
    * @param defaultProvider - Default provider for requests
    */
   constructor(configs: LLMConfig[], defaultProvider?: LLMProvider) {
+    this.config = {
+      retryAttempts: 3,
+      timeoutMs: 30000, // 30 seconds
+      rateLimitDelay: 1000, // 1 second between requests
+    }
+
     configs.forEach(config => {
       this.providers.set(config.provider, config)
     })
-    
+
     if (defaultProvider) {
-      this.defaultProvider = defaultProvider
+      this.activeProvider = defaultProvider
     }
+
+    this.performInitialHealthChecks()
   }
 
   /**
-   * Generate text completion using specified or default provider
+   * Perform initial health checks on all configured providers.
+   */
+  private async performInitialHealthChecks(): Promise<void> {
+    console.log('🔍 Performing initial AI provider health checks...')
+    const healthCheckPromises = Array.from(this.providers.keys()).map(async providerName => {
+      try {
+        const result = await this.testConnection(providerName)
+        this.connectionStatus.set(providerName, result)
+        console.log(
+          `${result.success ? '✅' : '❌'} ${providerName}: ${
+            result.success ? `OK (${result.latency}ms)` : result.error
+          }`
+        )
+      } catch (error) {
+        console.error(`❌ Health check failed for ${providerName}:`, error)
+        this.connectionStatus.set(providerName, {
+          success: false,
+          latency: 0,
+          error: (error as Error).message,
+        })
+      }
+    })
+
+    await Promise.allSettled(healthCheckPromises)
+  }
+
+  /**
+   * Generate text completion with retry logic and detailed error handling.
    */
   async generateText(request: LLMRequest, config?: Partial<LLMConfig>): Promise<LLMResponse> {
-    const provider = config?.provider ?? this.defaultProvider
+    const provider = config?.provider ?? this.activeProvider
     const providerConfig = this.providers.get(provider)
-    
+
     if (!providerConfig) {
       throw new Error(`Provider ${provider} not configured`)
     }
 
     const startTime = Date.now()
-    
-    try {
-      switch (provider) {
-        case 'gemini':
-          return await this.generateGeminiText(request, providerConfig)
-        case 'openai':
-          return await this.generateOpenAIText(request, providerConfig)
-        case 'anthropic':
-          return await this.generateAnthropicText(request, providerConfig)
-        case 'local-ollama':
-          return await this.generateOllamaText(request, providerConfig)
-        case 'local-lm-studio':
-          return await this.generateLMStudioText(request, providerConfig)
-        default:
-          throw new Error(`Unsupported provider: ${provider}`)
-      }
-    } catch (error) {
-      return {
-        content: '',
-        metadata: {
-          model: providerConfig.model,
-          provider,
-          tokens: { input: 0, output: 0, total: 0 },
-          latency: Date.now() - startTime
-        },
-        error: error instanceof Error ? error.message : 'Unknown error'
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
+      try {
+        console.log(
+          `🤖 Generating content with ${provider} (attempt ${attempt}/${this.config.retryAttempts})`
+        )
+        let response: LLMResponse
+
+        switch (provider) {
+          case 'gemini':
+            response = await this.generateGeminiText(request, providerConfig)
+            break
+          case 'openai':
+            response = await this.generateOpenAIText(request, providerConfig)
+            break
+          case 'anthropic':
+            response = await this.generateAnthropicText(request, providerConfig)
+            break
+          case 'local-ollama':
+            response = await this.generateOllamaText(request, providerConfig)
+            break
+          case 'local-lm-studio':
+            response = await this.generateLMStudioText(request, providerConfig)
+            break
+          default:
+            throw new Error(`Unsupported provider: ${provider}`)
+        }
+
+        response.metadata.latency = Date.now() - startTime
+        console.log(`✅ Content generated successfully in ${response.metadata.latency}ms`)
+        return response
+      } catch (error) {
+        lastError = error as Error
+        console.warn(`⚠️ Attempt ${attempt} failed:`, lastError.message)
+        if (attempt < this.config.retryAttempts) {
+          await this.delay(this.config.rateLimitDelay * attempt) // Exponential backoff
+        }
       }
     }
+
+    throw new Error(
+      `AI generation failed after ${this.config.retryAttempts} attempts. Last error: ${lastError?.message}`
+    )
   }
 
   /**
-   * Generate embeddings with caching for performance
+   * Generate embeddings with caching for performance.
    */
-  async generateEmbedding(request: EmbeddingRequest, config?: Partial<LLMConfig>): Promise<EmbeddingResponse> {
+  async generateEmbedding(
+    request: EmbeddingRequest,
+    config?: Partial<LLMConfig>
+  ): Promise<EmbeddingResponse> {
     const cacheKey = `${request.text}:${request.model ?? 'default'}`
-    
     if (this.embeddingCache.has(cacheKey)) {
       return this.embeddingCache.get(cacheKey)!
     }
 
-    const provider = config?.provider ?? this.defaultProvider
+    const provider = config?.provider ?? this.activeProvider
     const providerConfig = this.providers.get(provider)
-    
     if (!providerConfig) {
       throw new Error(`Provider ${provider} not configured`)
     }
 
     let response: EmbeddingResponse
-
     switch (provider) {
       case 'gemini':
         response = await this.generateGeminiEmbedding(request, providerConfig)
@@ -231,57 +190,94 @@ export class AIService implements IAIService {
   }
 
   /**
-   * Test connection to specific provider
+   * Test connection to a specific provider with detailed diagnostics.
    */
-  async testConnection(provider: LLMProvider): Promise<boolean> {
+  async testConnection(providerName: LLMProvider): Promise<ConnectionTestResult> {
+    const provider = this.providers.get(providerName)
+    if (!provider) {
+      return { success: false, latency: 0, error: 'Provider not found' }
+    }
+
+    const startTime = Date.now()
     try {
-      const testRequest: LLMRequest = {
-        prompt: 'test',
-        maxTokens: 1
+      switch (providerName) {
+        case 'gemini':
+          return await this.testGeminiConnection(provider, startTime)
+        // Add other provider tests here
+        default:
+          // Fallback for other providers
+          await this.generateText({ prompt: 'test', maxTokens: 1 }, { provider: providerName })
+          return { success: true, latency: Date.now() - startTime }
       }
-      
-      await this.generateText(testRequest, { provider })
-      return true
-    } catch {
-      return false
+    } catch (error) {
+      return {
+        success: false,
+        latency: Date.now() - startTime,
+        error: (error as Error).message,
+      }
     }
   }
 
   /**
-   * Get available models for provider
+   * Test Gemini API connection using the v1 endpoint.
+   */
+  private async testGeminiConnection(
+    provider: LLMConfig,
+    startTime: number
+  ): Promise<ConnectionTestResult> {
+    if (!provider.apiKey) {
+      return { success: false, latency: 0, error: 'API key not configured' }
+    }
+
+    const response = await this.fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1/models?key=${provider.apiKey}`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+      this.config.timeoutMs
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`HTTP ${response.status}: ${errorText}`)
+    }
+
+    const data = await response.json()
+    const models = data.models?.map((m: any) => m.name) || []
+    return { success: true, latency: Date.now() - startTime, models }
+  }
+
+  /**
+   * Get available models for a given provider.
    */
   async getAvailableModels(provider: LLMProvider): Promise<string[]> {
     const providerConfig = this.providers.get(provider)
-    
     if (!providerConfig) {
       throw new Error(`Provider ${provider} not configured`)
     }
 
     switch (provider) {
       case 'gemini':
-        return ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash']
+        return ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro']
       case 'openai':
-        return ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo']
+        return ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo']
       case 'anthropic':
-        return ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku']
+        return ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']
       case 'local-ollama':
-        return await this.getOllamaModels(providerConfig)
+        return this.getOllamaModels(providerConfig)
       case 'local-lm-studio':
-        return await this.getLMStudioModels(providerConfig)
+        return this.getLMStudioModels(providerConfig)
       default:
         return []
     }
   }
 
   /**
-   * Calculate semantic similarity using embeddings
+   * Calculate semantic similarity between two texts using embeddings.
    */
   async calculateSimilarity(text1: string, text2: string): Promise<number> {
     const [embedding1, embedding2] = await Promise.all([
       this.generateEmbedding({ text: text1 }),
-      this.generateEmbedding({ text: text2 })
+      this.generateEmbedding({ text: text2 }),
     ])
-
     return this.cosineSimilarity(embedding1.embedding, embedding2.embedding)
   }
 
@@ -293,7 +289,7 @@ export class AIService implements IAIService {
       prompt: query,
       systemPrompt: "You are a helpful assistant for knowledge graph analysis. Provide clear, actionable insights based on the user's question.",
       temperature: 0.7,
-      maxTokens: 1000
+      maxTokens: 8164
     }, config)
   }
 
@@ -304,7 +300,7 @@ export class AIService implements IAIService {
     const response = await this.generateText({
       prompt: `Summarize this content in 2-3 sentences, focusing on the key concepts and main ideas:\n\n${content}`,
       temperature: 0.3,
-      maxTokens: 200
+      maxTokens: 1000
     }, config)
 
     return response.content
@@ -318,7 +314,7 @@ export class AIService implements IAIService {
       prompt: `Extract the ${maxTerms} most important key terms and concepts from this text. Return as a JSON array of strings:\n\n${text}`,
       format: 'json',
       temperature: 0.2,
-      maxTokens: 300
+      maxTokens: 8164
     }, config)
 
     try {
@@ -337,9 +333,9 @@ export class AIService implements IAIService {
    * UI Helper: Suggest relationship between two nodes
    */
   async suggestRelationship(
-    sourceLabel: string, 
+    sourceLabel: string,
     sourceContent: string,
-    targetLabel: string, 
+    targetLabel: string,
     targetContent: string,
     config?: Partial<LLMConfig>
   ): Promise<{
@@ -348,23 +344,10 @@ export class AIService implements IAIService {
     reasoning: string
   }> {
     const response = await this.generateText({
-      prompt: `Analyze the relationship between these two concepts:
-
-Concept A: "${sourceLabel}"
-Content: ${sourceContent}
-
-Concept B: "${targetLabel}"  
-Content: ${targetContent}
-
-Determine:
-1. Relationship type (semantic, causal, temporal, hierarchical)
-2. Strength (0-1, where 1 is very strong relationship)
-3. Brief reasoning
-
-Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
+      prompt: `Analyze the relationship between these two concepts:\n\nConcept A: "${sourceLabel}"\nContent: ${sourceContent}\n\nConcept B: "${targetLabel}"\nContent: ${targetContent}\n\nDetermine:\n1. Relationship type (semantic, causal, temporal, hierarchical)\n2. Strength (0-1, where 1 is very strong relationship)\n3. Brief reasoning\n\nFormat as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
       format: 'json',
       temperature: 0.3,
-      maxTokens: 300
+      maxTokens: 8164
     }, config)
 
     try {
@@ -384,30 +367,68 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
   }
 
   /**
-   * Private method: Generate text using Gemini API
+   * Fetch with timeout and abort signal.
+   */
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs: number
+  ): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal })
+      clearTimeout(timeoutId)
+      return response
+    } catch (error) {
+      clearTimeout(timeoutId)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Utility function for delays (e.g., for rate limiting).
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  /**
+   * Private method: Generate text using the corrected Gemini API v1beta endpoint.
    */
   private async generateGeminiText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: request.prompt }] }],
-        generationConfig: {
-          temperature: request.temperature ?? config.temperature ?? 0.7,
-          maxOutputTokens: request.maxTokens ?? config.maxTokens ?? 1000,
-          responseMimeType: request.format === 'json' ? 'application/json' : 'text/plain'
-        }
-      })
-    })
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`
+    const response = await this.fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: request.prompt }] }],
+          generationConfig: {
+            temperature: request.temperature ?? config.temperature ?? 0.7,
+            maxOutputTokens: request.maxTokens ?? config.maxTokens ?? 2048,
+            responseMimeType: request.format === 'json' ? 'application/json' : 'text/plain',
+          },
+        }),
+      },
+      this.config.timeoutMs
+    )
 
-    const data = await response.json()
-    
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${data.error?.message ?? 'Unknown error'}`)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Gemini API error ${response.status}: ${errorData.error?.message || response.statusText}`)
     }
 
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-    
+    const data = await response.json()
+    if (!data.candidates || data.candidates.length === 0) {
+      throw new Error('No content generated by Gemini')
+    }
+    const content = data.candidates[0]?.content?.parts[0]?.text || ''
+
     return {
       content,
       metadata: {
@@ -416,10 +437,10 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
         tokens: {
           input: data.usageMetadata?.promptTokenCount ?? 0,
           output: data.usageMetadata?.candidatesTokenCount ?? 0,
-          total: data.usageMetadata?.totalTokenCount ?? 0
+          total: data.usageMetadata?.totalTokenCount ?? 0,
         },
-        latency: 0 // Will be set by caller
-      }
+        latency: 0, // Will be set by the caller
+      },
     }
   }
 
@@ -446,7 +467,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       throw new Error(`OpenAI API error: ${data.error?.message ?? 'Unknown error'}`)
     }
@@ -479,7 +500,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async generateOllamaText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const baseUrl = config.baseUrl ?? 'http://localhost:11434'
-    
+
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -495,7 +516,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       throw new Error(`Ollama API error: ${data.error ?? 'Unknown error'}`)
     }
@@ -520,7 +541,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async generateLMStudioText(request: LLMRequest, config: LLMConfig): Promise<LLMResponse> {
     const baseUrl = config.baseUrl ?? 'http://localhost:1234'
-    
+
     const response = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -533,7 +554,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       throw new Error(`LM Studio API error: ${data.error?.message ?? 'Unknown error'}`)
     }
@@ -558,7 +579,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async generateGeminiEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
     const model = request.model ?? 'models/text-embedding-004'
-    
+
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:embedContent?key=${config.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -568,7 +589,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       throw new Error(`Gemini Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
     }
@@ -586,7 +607,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async generateOpenAIEmbedding(request: EmbeddingRequest, config: LLMConfig): Promise<EmbeddingResponse> {
     const model = request.model ?? 'text-embedding-3-small'
-    
+
     const response = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
       headers: {
@@ -600,7 +621,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       throw new Error(`OpenAI Embedding API error: ${data.error?.message ?? 'Unknown error'}`)
     }
@@ -618,7 +639,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async getOllamaModels(config: LLMConfig): Promise<string[]> {
     const baseUrl = config.baseUrl ?? 'http://localhost:11434'
-    
+
     try {
       const response = await fetch(`${baseUrl}/api/tags`)
       const data = await response.json()
@@ -633,7 +654,7 @@ Format as JSON: {"type": "...", "strength": 0.0, "reasoning": "..."}`,
    */
   private async getLMStudioModels(config: LLMConfig): Promise<string[]> {
     const baseUrl = config.baseUrl ?? 'http://localhost:1234'
-    
+
     try {
       const response = await fetch(`${baseUrl}/v1/models`)
       const data = await response.json()

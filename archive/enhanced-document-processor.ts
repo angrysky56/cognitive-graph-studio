@@ -1,45 +1,27 @@
 /**
- * Enhanced Document Processor with Semantic Entity Extraction
- * 
- * Replaces basic chunking with intelligent entity recognition and 
- * relationship extraction, inspired by InfraNodus text-to-network approach.
- * This addresses the issue of meaningless node names like "brain inspired 1".
- * 
+ * Enhanced Document Processor with AI-Powered Entity Extraction
+ *
+ * Uses actual AI to intelligently extract concepts, entities, and relationships
+ * from ANY type of content - not just hardcoded AI/ML terms.
+ * This replaces the previous hardcoded NLP approach with real intelligence.
+ *
  * @module EnhancedDocumentProcessor
  */
 
-import nlp from 'compromise'
-import { EnhancedGraphNode, EnhancedGraphEdge } from '@/types/enhanced-graph'
+import { EnhancedGraphNode, EnhancedGraphEdge, ContentSource, RichContent, AIMetadata } from '../types/enhanced-graph'
+import { AIService } from './ai-service'
 import { v4 as uuidv4 } from 'uuid'
 
-// Configure compromise with additional plugins for better entity recognition
-nlp.plugin({
-  words: {
-    ai: 'Noun',
-    artificial: 'Adjective',
-    intelligence: 'Noun',
-    machine: 'Noun',
-    learning: 'Noun',
-    neural: 'Adjective',
-    network: 'Noun',
-    algorithm: 'Noun',
-    data: 'Noun',
-    science: 'Noun'
-  },
-  tags: {
-    TechTerm: {
-      isA: 'Noun'
-    }
-  }
-})
+// Remove the garbage hardcoded approach - we'll use real AI instead
 
 export interface ExtractedEntity {
   text: string
-  type: 'person' | 'organization' | 'location' | 'concept' | 'topic' | 'technology'
+  type: 'person' | 'organization' | 'location' | 'concept' | 'topic' | 'technology' | 'method' | 'theory' | 'tool' | 'process'
   importance: number
   context: string
   mentions: number
-  sentiments?: 'positive' | 'neutral' | 'negative'
+  category: string // AI-determined category
+  reasoning: string // Why AI classified it this way
 }
 
 export interface ExtractedRelationship {
@@ -48,6 +30,7 @@ export interface ExtractedRelationship {
   type: 'semantic' | 'causal' | 'temporal' | 'hierarchical'
   strength: number
   context: string
+  reasoning: string // AI explanation of the relationship
 }
 
 export interface ProcessingResult {
@@ -56,75 +39,88 @@ export interface ProcessingResult {
   summary: string
   topics: string[]
   keyPhrases: string[]
+  documentType: string // AI-determined document type
+  mainThemes: string[] // AI-identified themes
 }
 
 export interface ProcessingOptions {
   minEntityImportance?: number
   maxNodes?: number
-  includePhrases?: boolean
   extractRelationships?: boolean
   language?: 'en' | 'fr' | 'de' | 'es'
+  aiModel?: string
 }
 
 /**
- * Enhanced document processor with NLP capabilities
+ * AI-Powered document processor that intelligently extracts concepts
+ * from ANY type of content using actual artificial intelligence
  */
 export class EnhancedDocumentProcessor {
-  private stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-    'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'
-  ])
+  private aiService: AIService
+
+  constructor(aiService?: AIService) {
+    // Use provided AI service or create a default one
+    this.aiService = aiService || new AIService([
+      {
+        provider: 'gemini',
+        apiKey: process.env.VITE_GEMINI_API_KEY || '',
+        model: 'gemini-1.5-flash',
+        temperature: 0.3,
+        maxTokens: 8000
+      }
+    ])
+  }
 
   /**
-   * Process document text into semantic nodes and relationships
+   * Process document text using AI to extract intelligent concepts and relationships
    */
   async processDocument(
-    text: string, 
-    title?: string, 
+    text: string,
+    title?: string,
     options: ProcessingOptions = {}
   ): Promise<ProcessingResult> {
     const {
       minEntityImportance = 0.3,
       maxNodes = 50,
-      includePhrases = true,
       extractRelationships = true
     } = options
 
-    // Clean and normalize text
-    const cleanedText = this.cleanText(text)
-    
-    // Extract entities using NLP
-    const entities = this.extractEntities(cleanedText)
-    
-    // Filter and rank entities
-    const importantEntities = entities
-      .filter(entity => entity.importance >= minEntityImportance)
-      .sort((a, b) => b.importance - a.importance)
-      .slice(0, maxNodes)
+    try {
+      // Step 1: AI-powered content analysis
+      const analysis = await this.analyzeDocumentWithAI(text, title)
 
-    // Create nodes from entities
-    const nodes = this.createNodesFromEntities(importantEntities, title || 'Document')
+      // Step 2: Extract entities using AI
+      const entities = await this.extractEntitiesWithAI(text, maxNodes)
 
-    // Extract relationships if requested
-    let edges: EnhancedGraphEdge[] = []
-    if (extractRelationships) {
-      const relationships = this.extractRelationships(cleanedText, importantEntities)
-      edges = this.createEdgesFromRelationships(relationships, nodes)
-    }
+      // Step 3: Filter entities by importance
+      const importantEntities = entities
+        .filter(entity => entity.importance >= minEntityImportance)
+        .sort((a, b) => b.importance - a.importance)
+        .slice(0, maxNodes)
 
-    // Generate summary and metadata
-    const summary = this.generateSummary(cleanedText)
-    const topics = this.extractTopics(cleanedText)
-    const keyPhrases = this.extractKeyPhrases(cleanedText)
+      // Step 4: Create nodes from AI-extracted entities
+      const nodes = await this.createNodesFromEntities(importantEntities, title || 'Document', analysis)
 
-    return {
-      nodes,
-      edges,
-      summary,
-      topics,
-      keyPhrases
+      // Step 5: Extract relationships using AI if requested
+      let edges: EnhancedGraphEdge[] = []
+      if (extractRelationships && importantEntities.length > 1) {
+        const relationships = await this.extractRelationshipsWithAI(text, importantEntities)
+        edges = await this.createEdgesFromRelationships(relationships, nodes)
+      }
+
+      return {
+        nodes,
+        edges,
+        summary: analysis.summary,
+        topics: analysis.topics,
+        keyPhrases: analysis.keyPhrases,
+        documentType: analysis.documentType,
+        mainThemes: analysis.mainThemes
+      }
+
+    } catch (error) {
+      console.error('AI processing failed, falling back to basic extraction:', error)
+      return this.fallbackProcessing(text, title, options)
     }
   }
 
@@ -136,12 +132,12 @@ export class EnhancedDocumentProcessor {
     windowSize: number = 5
   ): Promise<ProcessingResult> {
     const doc = nlp(text)
-    
+
     // Extract significant words (nouns, adjectives, verbs)
-    const words = doc.match('#Noun|#Adjective|#Verb')
+    const words: string[] = doc.match('#Noun|#Adjective|#Verb')
       .out('array')
-      .map(word => word.toLowerCase())
-      .filter(word => word.length > 2 && !this.stopWords.has(word))
+      .map((word: string) => word.toLowerCase())
+      .filter((word: string) => word.length > 2 && !this.stopWords.has(word));
 
     // Count word frequencies
     const wordCounts = words.reduce((acc, word) => {
@@ -152,8 +148,8 @@ export class EnhancedDocumentProcessor {
     // Create nodes from words (minimum frequency threshold)
     const minFrequency = Math.max(1, Math.floor(words.length * 0.01))
     const significantWords = Object.entries(wordCounts)
-      .filter(([, count]) => count >= minFrequency)
-      .sort(([, a], [, b]) => b - a)
+      .filter(([, count]) => (count as number) >= minFrequency)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 50)
 
     const nodes: EnhancedGraphNode[] = significantWords.map(([word, count]) => ({
@@ -165,7 +161,7 @@ export class EnhancedDocumentProcessor {
         created: new Date(),
         modified: new Date(),
         tags: ['word', 'frequency'],
-        size: Math.log(count + 1) * 10
+        size: Math.log((count as number) + 1) * 10
       },
       connections: [],
       aiGenerated: false,
@@ -177,7 +173,7 @@ export class EnhancedDocumentProcessor {
         attachments: []
       },
       aiMetadata: {
-        confidenceScore: Math.min(1, count / 10),
+        confidenceScore: Math.min(1, (count as number) / 10),
         lastProcessed: new Date(),
         agentHistory: [],
         suggestions: [],
@@ -218,54 +214,58 @@ export class EnhancedDocumentProcessor {
 
     // Extract people
     const people = doc.people().out('array')
-    people.forEach(person => {
-      entities.push({
-        text: person,
-        type: 'person',
-        importance: this.calculateImportance(person, text),
-        context: this.getContext(person, text),
-        mentions: this.countMentions(person, text)
-      })
+    people.forEach((person: string) => {
+      const entity: ExtractedEntity = {
+      text: person,
+      type: 'person',
+      importance: this.calculateImportance(person, text),
+      context: this.getContext(person, text),
+      mentions: this.countMentions(person, text)
+      }
+      entities.push(entity)
     })
 
     // Extract organizations
     const orgs = doc.organizations().out('array')
-    orgs.forEach(org => {
-      entities.push({
-        text: org,
-        type: 'organization',
-        importance: this.calculateImportance(org, text),
-        context: this.getContext(org, text),
-        mentions: this.countMentions(org, text)
-      })
+    orgs.forEach((org: string) => {
+      const entity: ExtractedEntity = {
+      text: org,
+      type: 'organization',
+      importance: this.calculateImportance(org, text),
+      context: this.getContext(org, text),
+      mentions: this.countMentions(org, text)
+      }
+      entities.push(entity)
     })
 
     // Extract places
     const places = doc.places().out('array')
-    places.forEach(place => {
-      entities.push({
-        text: place,
-        type: 'location',
-        importance: this.calculateImportance(place, text),
-        context: this.getContext(place, text),
-        mentions: this.countMentions(place, text)
-      })
+    places.forEach((place: string) => {
+      const entity: ExtractedEntity = {
+      text: place,
+      type: 'location',
+      importance: this.calculateImportance(place, text),
+      context: this.getContext(place, text),
+      mentions: this.countMentions(place, text)
+      }
+      entities.push(entity)
     })
 
     // Extract concepts (significant nouns and noun phrases)
-    const concepts = doc.match('#Noun+ #Noun*')
+    const concepts: string[] = doc.match('#Noun+ #Noun*')
       .concat(doc.match('#Adjective+ #Noun+'))
       .out('array')
-      .filter(concept => concept.length > 2 && !this.stopWords.has(concept.toLowerCase()))
+      .filter((concept: string) => concept.length > 2 && !this.stopWords.has(concept.toLowerCase()))
 
-    concepts.forEach(concept => {
-      entities.push({
-        text: concept,
-        type: this.classifyEntityType(concept),
-        importance: this.calculateImportance(concept, text),
-        context: this.getContext(concept, text),
-        mentions: this.countMentions(concept, text)
-      })
+    concepts.forEach((concept: string) => {
+      const entity: ExtractedEntity = {
+      text: concept,
+      type: this.classifyEntityType(concept),
+      importance: this.calculateImportance(concept, text),
+      context: this.getContext(concept, text),
+      mentions: this.countMentions(concept, text)
+      }
+      entities.push(entity)
     })
 
     // Deduplicate and merge similar entities
@@ -306,7 +306,7 @@ export class EnhancedDocumentProcessor {
 
     const start = Math.max(0, index - windowSize)
     const end = Math.min(text.length, index + entity.length + windowSize)
-    
+
     return text.slice(start, end).trim()
   }
 
@@ -315,20 +315,20 @@ export class EnhancedDocumentProcessor {
    */
   private classifyEntityType(entity: string): ExtractedEntity['type'] {
     const lowerEntity = entity.toLowerCase()
-    
+
     // Technology terms
-    if (lowerEntity.includes('ai') || lowerEntity.includes('artificial') || 
+    if (lowerEntity.includes('ai') || lowerEntity.includes('artificial') ||
         lowerEntity.includes('machine learning') || lowerEntity.includes('neural') ||
         lowerEntity.includes('algorithm') || lowerEntity.includes('data')) {
       return 'technology'
     }
-    
+
     // Abstract concepts
     if (lowerEntity.includes('concept') || lowerEntity.includes('theory') ||
         lowerEntity.includes('principle') || lowerEntity.includes('approach')) {
       return 'concept'
     }
-    
+
     return 'topic'
   }
 
@@ -337,11 +337,11 @@ export class EnhancedDocumentProcessor {
    */
   private deduplicateEntities(entities: ExtractedEntity[]): ExtractedEntity[] {
     const entityMap = new Map<string, ExtractedEntity>()
-    
+
     entities.forEach(entity => {
       const key = entity.text.toLowerCase().trim()
       const existing = entityMap.get(key)
-      
+
       if (existing) {
         // Merge with existing entity
         existing.mentions += entity.mentions
@@ -353,7 +353,7 @@ export class EnhancedDocumentProcessor {
         entityMap.set(key, { ...entity })
       }
     })
-    
+
     return Array.from(entityMap.values())
   }
 
@@ -363,29 +363,31 @@ export class EnhancedDocumentProcessor {
   private extractRelationships(text: string, entities: ExtractedEntity[]): ExtractedRelationship[] {
     const relationships: ExtractedRelationship[] = []
     const sentences = nlp(text).sentences().out('array')
-    
-    sentences.forEach(sentence => {
-      const entitiesInSentence = entities.filter(entity =>
-        sentence.toLowerCase().includes(entity.text.toLowerCase())
+
+    sentences.forEach((sentence: string) => {
+      const entitiesInSentence: ExtractedEntity[] = entities.filter((entity: ExtractedEntity) =>
+      sentence.toLowerCase().includes(entity.text.toLowerCase())
       )
-      
+
       // Create relationships between entities in the same sentence
-      for (let i = 0; i < entitiesInSentence.length; i++) {
-        for (let j = i + 1; j < entitiesInSentence.length; j++) {
-          const source = entitiesInSentence[i]
-          const target = entitiesInSentence[j]
-          
-          relationships.push({
-            source: source.text,
-            target: target.text,
-            type: this.inferRelationshipType(sentence, source.text, target.text),
-            strength: this.calculateRelationshipStrength(sentence, source.text, target.text),
-            context: sentence
-          })
+      for (let i: number = 0; i < entitiesInSentence.length; i++) {
+      for (let j: number = i + 1; j < entitiesInSentence.length; j++) {
+        const source: ExtractedEntity = entitiesInSentence[i]
+        const target: ExtractedEntity = entitiesInSentence[j]
+
+        const relationship: ExtractedRelationship = {
+        source: source.text,
+        target: target.text,
+        type: this.inferRelationshipType(sentence, source.text, target.text),
+        strength: this.calculateRelationshipStrength(sentence, source.text, target.text),
+        context: sentence
         }
+
+        relationships.push(relationship)
+      }
       }
     })
-    
+
     return this.aggregateRelationships(relationships)
   }
 
@@ -394,25 +396,25 @@ export class EnhancedDocumentProcessor {
    */
   private inferRelationshipType(sentence: string, source: string, target: string): ExtractedRelationship['type'] {
     const lowerSentence = sentence.toLowerCase()
-    
+
     // Causal relationships
     if (lowerSentence.includes('causes') || lowerSentence.includes('leads to') ||
         lowerSentence.includes('results in') || lowerSentence.includes('because')) {
       return 'causal'
     }
-    
+
     // Temporal relationships
     if (lowerSentence.includes('before') || lowerSentence.includes('after') ||
         lowerSentence.includes('then') || lowerSentence.includes('next')) {
       return 'temporal'
     }
-    
+
     // Hierarchical relationships
     if (lowerSentence.includes('part of') || lowerSentence.includes('includes') ||
         lowerSentence.includes('contains') || lowerSentence.includes('consists of')) {
       return 'hierarchical'
     }
-    
+
     return 'semantic'
   }
 
@@ -422,12 +424,12 @@ export class EnhancedDocumentProcessor {
   private calculateRelationshipStrength(sentence: string, source: string, target: string): number {
     const sourceIndex = sentence.toLowerCase().indexOf(source.toLowerCase())
     const targetIndex = sentence.toLowerCase().indexOf(target.toLowerCase())
-    
+
     if (sourceIndex === -1 || targetIndex === -1) return 0.1
-    
+
     const distance = Math.abs(sourceIndex - targetIndex)
     const maxDistance = sentence.length
-    
+
     // Closer entities have stronger relationships
     return Math.max(0.1, 1 - (distance / maxDistance))
   }
@@ -437,13 +439,13 @@ export class EnhancedDocumentProcessor {
    */
   private aggregateRelationships(relationships: ExtractedRelationship[]): ExtractedRelationship[] {
     const relationshipMap = new Map<string, ExtractedRelationship>()
-    
+
     relationships.forEach(rel => {
       const key = `${rel.source.toLowerCase()}-${rel.target.toLowerCase()}`
       const reverseKey = `${rel.target.toLowerCase()}-${rel.source.toLowerCase()}`
-      
+
       const existing = relationshipMap.get(key) || relationshipMap.get(reverseKey)
-      
+
       if (existing) {
         existing.strength = Math.max(existing.strength, rel.strength)
         if (rel.context.length > existing.context.length) {
@@ -453,7 +455,7 @@ export class EnhancedDocumentProcessor {
         relationshipMap.set(key, { ...rel })
       }
     })
-    
+
     return Array.from(relationshipMap.values())
       .filter(rel => rel.strength > 0.2) // Filter weak relationships
   }
@@ -465,10 +467,10 @@ export class EnhancedDocumentProcessor {
     return entities.map(entity => ({
       id: uuidv4(),
       label: entity.text,
-      type: entity.type,
-      position: { 
-        x: Math.random() * 800, 
-        y: Math.random() * 600 
+      type: 'concept' as const,
+      position: {
+        x: Math.random() * 800,
+        y: Math.random() * 600
       },
       metadata: {
         created: new Date(),
@@ -482,7 +484,13 @@ export class EnhancedDocumentProcessor {
         markdown: entity.context,
         keyTerms: [],
         relatedConcepts: [],
-        sources: [],
+        sources: [{
+          id: uuidv4(),
+          type: 'document',
+          title: sourceTitle,
+          retrievedAt: new Date(),
+          confidence: entity.importance
+        }],
         attachments: []
       },
       aiMetadata: {
@@ -502,14 +510,14 @@ export class EnhancedDocumentProcessor {
    */
   private createEdgesFromRelationships(relationships: ExtractedRelationship[], nodes: EnhancedGraphNode[]): EnhancedGraphEdge[] {
     const nodeMap = new Map(nodes.map(node => [node.label.toLowerCase(), node.id]))
-    
+
     return relationships
       .map(rel => {
         const sourceId = nodeMap.get(rel.source.toLowerCase())
         const targetId = nodeMap.get(rel.target.toLowerCase())
-        
+
         if (!sourceId || !targetId) return null
-        
+
         return {
           id: uuidv4(),
           source: sourceId,
@@ -519,6 +527,7 @@ export class EnhancedDocumentProcessor {
           label: rel.context.slice(0, 50) + '...',
           metadata: {
             created: new Date(),
+            modified: new Date(),
             confidence: rel.strength,
             aiGenerated: false
           },
@@ -541,7 +550,7 @@ export class EnhancedDocumentProcessor {
           }
         }
       })
-      .filter((edge): edge is EnhancedGraphEdge => edge !== null)
+      .filter(edge => edge !== null) as EnhancedGraphEdge[]
   }
 
   /**
@@ -551,26 +560,26 @@ export class EnhancedDocumentProcessor {
     const edges: EnhancedGraphEdge[] = []
     const nodeMap = new Map(nodes.map(node => [node.label, node.id]))
     const cooccurrences = new Map<string, number>()
-    
+
     // Count co-occurrences within sliding window
     for (let i = 0; i < words.length; i++) {
       for (let j = i + 1; j < Math.min(i + windowSize, words.length); j++) {
         const word1 = words[i]
         const word2 = words[j]
-        
+
         if (word1 !== word2 && nodeMap.has(word1) && nodeMap.has(word2)) {
           const key = [word1, word2].sort().join('-')
           cooccurrences.set(key, (cooccurrences.get(key) || 0) + 1)
         }
       }
     }
-    
+
     // Create edges from co-occurrences
     cooccurrences.forEach((count, key) => {
       const [word1, word2] = key.split('-')
       const sourceId = nodeMap.get(word1)
       const targetId = nodeMap.get(word2)
-      
+
       if (sourceId && targetId && count > 1) {
         edges.push({
           id: uuidv4(),
@@ -605,7 +614,7 @@ export class EnhancedDocumentProcessor {
         })
       }
     })
-    
+
     return edges
   }
 
@@ -615,11 +624,11 @@ export class EnhancedDocumentProcessor {
   private generateSummary(text: string): string {
     const doc = nlp(text)
     const sentences = doc.sentences().out('array')
-    
+
     if (sentences.length <= 3) {
       return text
     }
-    
+
     // Simple extractive summarization: take first and last sentences
     const summary = [sentences[0], sentences[sentences.length - 1]].join(' ')
     return summary.length > 300 ? summary.slice(0, 300) + '...' : summary
@@ -630,23 +639,25 @@ export class EnhancedDocumentProcessor {
    */
   private extractTopics(text: string): string[] {
     const doc = nlp(text)
-    
+
     // Extract noun phrases as potential topics
-    const topics = doc.match('#Noun+ #Noun*')
+    const rawTopics = doc.match('#Noun+ #Noun*')
       .concat(doc.match('#Adjective+ #Noun+'))
-      .out('array')
-      .filter(topic => topic.length > 2)
-      .map(topic => topic.toLowerCase())
-      .filter(topic => !this.stopWords.has(topic))
-    
+      .out('array') as string[]
+
+    const topics = rawTopics
+      .filter((topic: string) => topic.length > 2)
+      .map((topic: string) => topic.toLowerCase())
+      .filter((topic: string) => !this.stopWords.has(topic))
+
     // Count frequencies and return top topics
-    const topicCounts = topics.reduce((acc, topic) => {
+    const topicCounts = topics.reduce((acc: Record<string, number>, topic: string) => {
       acc[topic] = (acc[topic] || 0) + 1
       return acc
     }, {} as Record<string, number>)
-    
+
     return Object.entries(topicCounts)
-      .sort(([, a], [, b]) => b - a)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 10)
       .map(([topic]) => topic)
   }
@@ -656,16 +667,18 @@ export class EnhancedDocumentProcessor {
    */
   private extractKeyPhrases(text: string): string[] {
     const doc = nlp(text)
-    
+
     // Extract significant phrases
-    const phrases = doc.match('#Adjective* #Noun+')
+    const rawPhrases = doc.match('#Adjective* #Noun+')
       .concat(doc.match('#Verb #Noun+'))
-      .out('array')
-      .filter(phrase => phrase.length > 3)
-      .map(phrase => phrase.toLowerCase())
-    
+      .out('array') as string[]
+
+    const phrases = rawPhrases
+      .filter((phrase: string) => phrase.length > 3)
+      .map((phrase: string) => phrase.toLowerCase())
+
     // Return unique phrases
-    return [...new Set(phrases)].slice(0, 15)
+    return Array.from(new Set(phrases)).slice(0, 15)
   }
 }
 

@@ -1,8 +1,8 @@
 /**
  * Enhanced AI Service Manager for Cognitive Graph Studio
  * Provides robust AI integration with error handling, retries, and context management
- * 
- * @author MVPArchitect  
+ *
+ * @author MVPArchitect
  * @version 1.0.0
  * @module AIServiceManager
  */
@@ -41,12 +41,12 @@ export interface ConversationContext {
 /**
  * Enhanced AI Service Manager with robust error handling and context management
  * Supports multiple AI providers with automatic failover and retry logic
- * 
+ *
  * @example
  * ```typescript
  * const aiManager = new AIServiceManager()
  * await aiManager.initializeProviders()
- * const response = await aiManager.generateContent({ 
+ * const response = await aiManager.generateContent({
  *   prompt: "Explain quantum computing",
  *   context: "Previous discussion about physics"
  * })
@@ -68,7 +68,7 @@ export class AIServiceManager {
       retryAttempts: 3,
       retryDelay: 1000,
       timeout: 30000,
-      maxTokens: 2000,
+      maxTokens: 24000,
       temperature: 0.7,
       ...config
     }
@@ -121,17 +121,17 @@ export class AIServiceManager {
    */
   async initializeAndTestProviders(): Promise<Map<string, boolean>> {
     const results = new Map<string, boolean>()
-    
+
     for (const [name, provider] of this.providers) {
       try {
         const isAvailable = await this.testProvider(name)
         results.set(name, isAvailable)
-        
+
         if (!isAvailable && this.activeProvider === name) {
           // Switch to first available provider
           const availableProvider = Array.from(this.providers.entries())
             .find(([_, p]) => p.status === 'available')
-          
+
           if (availableProvider) {
             this.activeProvider = availableProvider[0]
             console.log(`Switched to available provider: ${this.activeProvider}`)
@@ -159,7 +159,7 @@ export class AIServiceManager {
 
     try {
       provider.status = 'loading'
-      
+
       switch (providerName) {
         case 'gemini':
           return await this.testGemini(provider)
@@ -219,7 +219,7 @@ export class AIServiceManager {
       const response = await fetch(`${provider.config.baseUrl}/v1/models`, {
         signal: AbortSignal.timeout(this.config.timeout)
       })
-      
+
       const isAvailable = response.ok
       provider.status = isAvailable ? 'available' : 'error'
       return isAvailable
@@ -231,7 +231,7 @@ export class AIServiceManager {
 
   /**
    * Test Ollama connectivity
-   * @param provider - Ollama provider configuration  
+   * @param provider - Ollama provider configuration
    * @returns Promise resolving to availability status
    * @private
    */
@@ -240,7 +240,7 @@ export class AIServiceManager {
       const response = await fetch(`${provider.config.baseUrl}/api/tags`, {
         signal: AbortSignal.timeout(this.config.timeout)
       })
-      
+
       const isAvailable = response.ok
       provider.status = isAvailable ? 'available' : 'error'
       return isAvailable
@@ -265,7 +265,7 @@ export class AIServiceManager {
     this.validateRequest(request)
 
     let lastError: Error | null = null
-    
+
     // Try active provider first, then fallback to others
     const providersToTry = [
       this.activeProvider,
@@ -274,19 +274,19 @@ export class AIServiceManager {
 
     for (const providerName of providersToTry) {
       const provider = this.providers.get(providerName)
-      
+
       if (!provider || provider.status !== 'available') {
         continue
       }
 
       try {
         const response = await this.generateWithRetry(provider, request, contextId)
-        
+
         // Update conversation context if provided
         if (contextId) {
           this.updateConversationContext(contextId, request.prompt, response.content)
         }
-        
+
         return response
       } catch (error) {
         lastError = error as Error
@@ -307,8 +307,8 @@ export class AIServiceManager {
    * @private
    */
   private async generateWithRetry(
-    provider: AIProvider, 
-    request: AIRequest, 
+    provider: AIProvider,
+    request: AIRequest,
     contextId?: string
   ): Promise<AIResponse> {
     let lastError: Error | null = null
@@ -316,9 +316,9 @@ export class AIServiceManager {
     for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
       try {
         const startTime = Date.now()
-        
+
         let response: AIResponse
-        
+
         switch (provider.name) {
           case 'gemini':
             response = await this.callGemini(provider, request, contextId)
@@ -335,11 +335,11 @@ export class AIServiceManager {
 
         response.metadata.responseTime = Date.now() - startTime
         response.metadata.timestamp = new Date()
-        
+
         return response
       } catch (error) {
         lastError = error as Error
-        
+
         if (attempt < this.config.retryAttempts) {
           await this.delay(this.config.retryDelay * attempt)
         }
@@ -358,14 +358,18 @@ export class AIServiceManager {
    * @private
    */
   private async callGemini(
-    provider: AIProvider, 
-    request: AIRequest, 
+    provider: AIProvider,
+    request: AIRequest,
     contextId?: string
   ): Promise<AIResponse> {
+    if (!provider.config.apiKey) {
+      throw new Error('Gemini API key is required')
+    }
+
     const messages = this.buildMessagesForProvider(request, contextId, 'gemini')
-    
+
     const response = await fetch(
-      `${provider.config.baseUrl}/v1beta/models/${provider.config.model}:generateContent`, 
+      `${provider.config.baseUrl}/v1beta/models/${provider.config.model}:generateContent`,
       {
         method: 'POST',
         headers: {
@@ -389,7 +393,7 @@ export class AIServiceManager {
     }
 
     const data = await response.json()
-    
+
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
       throw new Error('Invalid response format from Gemini API')
     }
@@ -419,12 +423,12 @@ export class AIServiceManager {
    * @private
    */
   private async callLMStudio(
-    provider: AIProvider, 
-    request: AIRequest, 
+    provider: AIProvider,
+    request: AIRequest,
     contextId?: string
   ): Promise<AIResponse> {
     const messages = this.buildMessagesForProvider(request, contextId, 'openai')
-    
+
     const response = await fetch(`${provider.config.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -445,7 +449,7 @@ export class AIServiceManager {
     }
 
     const data = await response.json()
-    
+
     if (!data.choices?.[0]?.message?.content) {
       throw new Error('Invalid response format from LM Studio API')
     }
@@ -469,18 +473,18 @@ export class AIServiceManager {
   /**
    * Call Ollama API with enhanced error handling
    * @param provider - Ollama provider configuration
-   * @param request - Generation request  
+   * @param request - Generation request
    * @param contextId - Optional conversation context
    * @returns Promise resolving to AI response
    * @private
    */
   private async callOllama(
-    provider: AIProvider, 
-    request: AIRequest, 
+    provider: AIProvider,
+    request: AIRequest,
     contextId?: string
   ): Promise<AIResponse> {
     const prompt = this.buildPromptForProvider(request, contextId)
-    
+
     const response = await fetch(`${provider.config.baseUrl}/api/generate`, {
       method: 'POST',
       headers: {
@@ -504,7 +508,7 @@ export class AIServiceManager {
     }
 
     const data = await response.json()
-    
+
     if (!data.response) {
       throw new Error('Invalid response format from Ollama API')
     }
@@ -529,12 +533,12 @@ export class AIServiceManager {
    * @private
    */
   private buildMessagesForProvider(
-    request: AIRequest, 
-    contextId: string | undefined, 
+    request: AIRequest,
+    contextId: string | undefined,
     format: 'gemini' | 'openai'
   ): any[] {
     const messages: any[] = []
-    
+
     // Add conversation context if available
     if (contextId) {
       const context = this.conversationHistory.get(contextId)
@@ -595,7 +599,7 @@ export class AIServiceManager {
    */
   private buildPromptForProvider(request: AIRequest, contextId?: string): string {
     let prompt = ''
-    
+
     // Add conversation context if available
     if (contextId) {
       const context = this.conversationHistory.get(contextId)
@@ -625,9 +629,9 @@ export class AIServiceManager {
    * @param nodeIds - Related graph node IDs
    */
   createConversationContext(
-    contextId: string, 
-    prompt: string, 
-    response: string, 
+    contextId: string,
+    prompt: string,
+    response: string,
     nodeIds: string[] = []
   ): void {
     const context: ConversationContext = {
@@ -663,12 +667,12 @@ export class AIServiceManager {
    * @private
    */
   private updateConversationContext(
-    contextId: string, 
-    prompt: string, 
+    contextId: string,
+    prompt: string,
     response: string
   ): void {
     const context = this.conversationHistory.get(contextId)
-    
+
     if (context) {
       context.messages.push(
         {

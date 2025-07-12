@@ -1,10 +1,10 @@
 /**
  * Vector service for semantic search and embedding management
- * 
+ *
  * Implements the "vector databases for semantic search" concept from project blueprint.
  * Provides semantic similarity search, clustering, and embedding management
  * for the cognitive graph studio's "linked instantly" capability.
- * 
+ *
  * @module VectorService
  */
 
@@ -12,7 +12,7 @@
  * Vector service for semantic search and embedding operations
  */
 
-import { 
+import {
   SemanticSearchContext
 } from '../types/enhanced-graph'
 
@@ -107,7 +107,7 @@ export interface VectorCluster {
 
 /**
  * Vector service interface for semantic operations
- * 
+ *
  * Provides high-performance semantic search, clustering, and embedding
  * management for cognitive graph nodes with "vast info" capability.
  */
@@ -156,8 +156,8 @@ export interface IVectorService {
    * @returns Promise resolving to similar vectors
    */
   findSimilar(
-    embedding: number[], 
-    k: number, 
+    embedding: number[],
+    k: number,
     filters?: Partial<VectorMetadata>
   ): Promise<VectorSearchResult[]>
 
@@ -191,7 +191,7 @@ export interface IVectorService {
 
 /**
  * High-performance vector service implementation
- * 
+ *
  * Uses in-memory index with optional persistence for fast semantic search
  * and clustering operations on cognitive graph embeddings.
  */
@@ -208,7 +208,7 @@ export class VectorService implements IVectorService {
    */
   async initialize(config: VectorIndexConfig): Promise<void> {
     this.config = config
-    
+
     // Load persisted vectors if enabled
     if (config.persistence.enabled && config.persistence.path) {
       await this.loadPersistedVectors(config.persistence.path)
@@ -240,22 +240,22 @@ export class VectorService implements IVectorService {
 
     // Generate or reuse vector ID
     const vectorId = this.generateVectorId(vector.metadata.nodeId, vector.metadata.contentType)
-    
+
     // Store vector
     const storedVector: StoredVector = {
       id: vectorId,
       ...vector
     }
-    
+
     this.vectors.set(vectorId, storedVector)
-    
+
     // Pre-compute normalized vector for cosine similarity
     if (this.config.metric === 'cosine') {
       this.normalizedVectors.set(vectorId, this.normalizeVector(vector.embedding))
     }
 
     this.lastUpdate = new Date()
-    
+
     // Check memory limits
     if (this.vectors.size > this.config.maxVectors) {
       await this.evictOldestVectors()
@@ -270,11 +270,11 @@ export class VectorService implements IVectorService {
   async removeVector(vectorId: string): Promise<boolean> {
     const removed = this.vectors.delete(vectorId)
     this.normalizedVectors.delete(vectorId)
-    
+
     if (removed) {
       this.lastUpdate = new Date()
     }
-    
+
     return removed
   }
 
@@ -283,14 +283,14 @@ export class VectorService implements IVectorService {
    */
   async updateMetadata(vectorId: string, metadata: Partial<VectorMetadata>): Promise<boolean> {
     const vector = this.vectors.get(vectorId)
-    
+
     if (!vector) {
       return false
     }
 
     vector.metadata = { ...vector.metadata, ...metadata, updated: new Date() }
     this.lastUpdate = new Date()
-    
+
     return true
   }
 
@@ -303,9 +303,9 @@ export class VectorService implements IVectorService {
     }
 
     const startTime = Date.now()
-    
+
     let queryEmbedding: number[]
-    
+
     if (context.embedding) {
       queryEmbedding = context.embedding
     } else {
@@ -315,16 +315,16 @@ export class VectorService implements IVectorService {
 
     // Apply filters to get candidate vectors
     const candidates = this.applyCandidateFilters(context.filters)
-    
+
     // Calculate similarities
     const results: VectorSearchResult[] = []
-    
+
     for (const vectorId of candidates) {
       const vector = this.vectors.get(vectorId)
       if (!vector) continue
 
       const similarity = this.calculateSimilarity(queryEmbedding, vector.embedding)
-      
+
       results.push({
         vectorId,
         nodeId: vector.metadata.nodeId,
@@ -352,8 +352,8 @@ export class VectorService implements IVectorService {
    * Find similar vectors to a given embedding
    */
   async findSimilar(
-    embedding: number[], 
-    k: number, 
+    embedding: number[],
+    k: number,
     filters?: Partial<VectorMetadata>
   ): Promise<VectorSearchResult[]> {
     if (!this.config) {
@@ -368,7 +368,7 @@ export class VectorService implements IVectorService {
       if (!vector) continue
 
       const similarity = this.calculateSimilarity(embedding, vector.embedding)
-      
+
       results.push({
         vectorId,
         nodeId: vector.metadata.nodeId,
@@ -389,7 +389,7 @@ export class VectorService implements IVectorService {
       throw new Error('Vector service not initialized')
     }
 
-    const targetVectors = vectorIds 
+    const targetVectors = vectorIds
       ? vectorIds.map(id => this.vectors.get(id)).filter(Boolean) as StoredVector[]
       : Array.from(this.vectors.values())
 
@@ -398,21 +398,21 @@ export class VectorService implements IVectorService {
     }
 
     const k = numClusters ?? Math.min(Math.ceil(Math.sqrt(targetVectors.length / 2)), 10)
-    
+
     // Initialize centroids randomly
     const centroids = this.initializeRandomCentroids(targetVectors, k)
     const clusters: VectorCluster[] = []
     let assignments = new Map<string, number>()
-    
+
     // K-means iteration
     for (let iter = 0; iter < 50; iter++) {
       // Assign vectors to nearest centroids
       assignments = new Map<string, number>()
-      
+
       for (const vector of targetVectors) {
         let bestCluster = 0
         let bestDistance = Infinity
-        
+
         for (let i = 0; i < centroids.length; i++) {
           const distance = this.calculateDistance(vector.embedding, centroids[i])
           if (distance < bestDistance) {
@@ -420,32 +420,32 @@ export class VectorService implements IVectorService {
             bestCluster = i
           }
         }
-        
+
         assignments.set(vector.id, bestCluster)
       }
-      
+
       // Update centroids
       const newCentroids = this.updateCentroids(targetVectors, assignments, k)
-      
+
       // Check for convergence
       if (this.centroidsConverged(centroids, newCentroids)) {
         break
       }
-      
+
       centroids.splice(0, centroids.length, ...newCentroids)
     }
 
     // Build cluster results
     for (let i = 0; i < k; i++) {
-      const vectorsInCluster = targetVectors.filter(v => 
+      const vectorsInCluster = targetVectors.filter(v =>
         assignments.get(v.id) === i
       )
-      
+
       if (vectorsInCluster.length === 0) continue
 
       const coherence = this.calculateClusterCoherence(vectorsInCluster, centroids[i])
       const radius = this.calculateClusterRadius(vectorsInCluster, centroids[i])
-      
+
       clusters.push({
         id: `cluster-${i}`,
         centroid: centroids[i],
@@ -492,7 +492,7 @@ export class VectorService implements IVectorService {
 
     // Clear caches
     this.normalizedVectors.clear()
-    
+
     // Rebuild normalized vectors if using cosine similarity
     if (this.config.metric === 'cosine') {
       for (const [id, vector] of this.vectors.entries()) {
@@ -515,11 +515,11 @@ export class VectorService implements IVectorService {
    */
   private normalizeVector(vector: number[]): number[] {
     const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0))
-    
+
     if (magnitude === 0) {
       return new Array(vector.length).fill(0)
     }
-    
+
     return vector.map(val => val / magnitude)
   }
 
@@ -619,7 +619,7 @@ export class VectorService implements IVectorService {
       candidates = candidates.filter(id => {
         const vector = this.vectors.get(id)
         if (!vector) return false
-        
+
         const created = vector.metadata.created
         return created >= filters.dateRange!.start && created <= filters.dateRange!.end
       })
@@ -638,7 +638,7 @@ export class VectorService implements IVectorService {
       .sort((a, b) => a.metadata.updated.getTime() - b.metadata.updated.getTime())
 
     const toRemove = Math.floor(this.config.maxVectors * 0.1) // Remove 10%
-    
+
     for (let i = 0; i < toRemove; i++) {
       await this.removeVector(sortedVectors[i].id)
     }
@@ -663,8 +663,8 @@ export class VectorService implements IVectorService {
    * Private method: Update centroids for k-means
    */
   private updateCentroids(
-    vectors: StoredVector[], 
-    assignments: Map<string, number>, 
+    vectors: StoredVector[],
+    assignments: Map<string, number>,
     k: number
   ): number[][] {
     const centroids: number[][] = []
@@ -672,7 +672,7 @@ export class VectorService implements IVectorService {
 
     for (let i = 0; i < k; i++) {
       const clusterVectors = vectors.filter(v => assignments.get(v.id) === i)
-      
+
       if (clusterVectors.length === 0) {
         // Random centroid if no vectors assigned
         centroids.push(new Array(dimensions).fill(0).map(() => Math.random()))
@@ -680,17 +680,17 @@ export class VectorService implements IVectorService {
       }
 
       const centroid = new Array(dimensions).fill(0)
-      
+
       for (const vector of clusterVectors) {
         for (let j = 0; j < dimensions; j++) {
           centroid[j] += vector.embedding[j]
         }
       }
-      
+
       for (let j = 0; j < dimensions; j++) {
         centroid[j] /= clusterVectors.length
       }
-      
+
       centroids.push(centroid)
     }
 
@@ -702,14 +702,14 @@ export class VectorService implements IVectorService {
    */
   private centroidsConverged(old: number[][], updated: number[][]): boolean {
     const threshold = 0.001
-    
+
     for (let i = 0; i < old.length; i++) {
       const distance = this.euclideanDistance(old[i], updated[i])
       if (distance > threshold) {
         return false
       }
     }
-    
+
     return true
   }
 
@@ -722,7 +722,7 @@ export class VectorService implements IVectorService {
     const distances = vectors.map(v => this.calculateDistance(v.embedding, centroid))
     const avgDistance = distances.reduce((sum, d) => sum + d, 0) / distances.length
     const maxDistance = Math.max(...distances)
-    
+
     return maxDistance > 0 ? 1 - (avgDistance / maxDistance) : 1
   }
 
@@ -742,7 +742,7 @@ export class VectorService implements IVectorService {
   private estimateMemoryUsage(): number {
     const vectorSize = this.config?.dimensions ?? 0
     const vectorCount = this.vectors.size
-    
+
     // Rough estimate: 8 bytes per float + metadata overhead
     return vectorCount * (vectorSize * 8 + 1024) // 1KB metadata per vector
   }
@@ -764,22 +764,22 @@ export class VectorService implements IVectorService {
     // In a real implementation, this would use an embedding model
     const content = `${node.label} ${node.content}`.toLowerCase()
     const words = content.split(/\s+/).filter(w => w.length > 2)
-    
+
     // Create a simple bag-of-words embedding (768 dimensions)
     const embedding = new Array(768).fill(0)
-    
+
     // Simple hash-based embedding
     for (const word of words) {
       const hash = this.simpleHash(word)
       const index = Math.abs(hash) % 768
       embedding[index] += 1 / words.length
     }
-    
+
     const vectorId = await this.addVector({
       embedding,
       metadata: {
         nodeId: node.id,
-        contentHash: this.simpleHash(content),
+        contentHash: this.simpleHash(content).toString(),
         created: new Date(),
         updated: new Date(),
         contentType: 'combined',
@@ -787,7 +787,7 @@ export class VectorService implements IVectorService {
         boost: 1.0
       }
     })
-    
+
     return vectorId
   }
 
@@ -798,16 +798,16 @@ export class VectorService implements IVectorService {
     // Generate embedding for the query
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
     const queryEmbedding = new Array(768).fill(0)
-    
+
     for (const word of words) {
       const hash = this.simpleHash(word)
       const index = Math.abs(hash) % 768
       queryEmbedding[index] += 1 / words.length
     }
-    
+
     // Find similar vectors
     const results = await this.findSimilar(queryEmbedding, limit)
-    
+
     // Convert to node-like results
     return results.map(result => ({
       nodeId: result.nodeId,
@@ -836,7 +836,7 @@ export class VectorService implements IVectorService {
     if (!this.config?.persistence.enabled || !this.config.persistence.path) {
       return
     }
-    
+
     // Implementation would depend on the persistence mechanism
     console.log(`Saving ${this.vectors.size} vectors to ${this.config.persistence.path}`)
   }

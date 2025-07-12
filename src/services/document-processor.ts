@@ -3,8 +3,8 @@
  * Advanced file parsing and AI-powered content extraction
  */
 
-import { GraphNode } from '@/types/graph'
-import serviceManager from './service-manager-enhanced'
+import { EnhancedGraphNode } from '@/types/enhanced-graph'
+import { serviceManager } from './service-manager'
 
 export interface DocumentChunk {
   id: string
@@ -118,14 +118,29 @@ class DocumentProcessingService {
   }
 
   /**
-   * Read PDF files (placeholder - would need PDF.js or similar)
+   * Read PDF files using pdf.js
    */
   private async readPDFFile(file: File): Promise<string> {
-    // TODO: Implement PDF reading with PDF.js or server-side processing
-    // For now, return a placeholder
-    return `PDF file "${file.name}" - PDF processing not yet implemented. 
-            File size: ${(file.size / 1024).toFixed(1)} KB.
-            This would typically extract text content from the PDF.`
+    return new Promise(async (resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer
+        try {
+          const pdf = await pdfjs.getDocument(arrayBuffer).promise
+          let fullText = ''
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i)
+            const textContent = await page.getTextContent()
+            fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n'
+          }
+          resolve(fullText)
+        } catch (error) {
+          reject(new Error(`Failed to parse PDF: ${error}`))
+        }
+      }
+      reader.onerror = () => reject(new Error('Failed to read PDF file'))
+      reader.readAsArrayBuffer(file)
+    })
   }
 
   /**

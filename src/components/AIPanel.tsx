@@ -41,9 +41,9 @@ import {
   Lightbulb as LightbulbIcon,
   AutoFixHigh as AutoFixHighIcon
 } from '@mui/icons-material'
-import { EnhancedGraphNode, EnhancedGraphEdge, EnhancedGraphCluster } from '@/types/enhanced-graph'
-import { GraphAwareAIService } from '@/services/graph-aware-ai-service'
-import { LLMConfig } from '@/services/ai-service'
+import { EnhancedGraphNode, EnhancedGraphEdge, EnhancedGraphCluster } from '../types/enhanced-graph'
+import { GraphAwareAIService } from '../services/graph-aware-ai-service'
+import { LLMConfig } from '../services/ai-service'
 
 interface AIPanelProps {
   nodes: Map<string, EnhancedGraphNode>
@@ -86,13 +86,19 @@ const AIPanel: React.FC<AIPanelProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [includeGraphContext, setIncludeGraphContext] = useState(true)
   const [showSuggestions, setShowSuggestions] = useState(true)
-  const [graphAwareAI] = useState(() => {
-    const ai = new GraphAwareAIService(aiConfig ? [aiConfig] : [])
-    return ai
-  })
+  const [graphAwareAI, setGraphAwareAI] = useState<GraphAwareAIService | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+  // Initialize AI service when aiConfig becomes available
+  useEffect(() => {
+    if (aiConfig) {
+      console.log('Initializing GraphAwareAIService with config:', aiConfig)
+      const ai = new GraphAwareAIService([aiConfig])
+      setGraphAwareAI(ai)
+    }
+  }, [aiConfig])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -103,7 +109,10 @@ const AIPanel: React.FC<AIPanelProps> = ({
 
   // Update AI with current graph context
   useEffect(() => {
-    graphAwareAI.updateGraphContext(nodes, edges, clusters)
+    if (graphAwareAI) {
+      console.log('Updating AI with graph context - nodes:', nodes.size, 'edges:', edges.size)
+      graphAwareAI.updateGraphContext(nodes, edges, clusters)
+    }
   }, [nodes, edges, clusters, graphAwareAI])
 
   // Scroll to bottom when new messages arrive
@@ -113,6 +122,17 @@ const AIPanel: React.FC<AIPanelProps> = ({
 
   const handleSendMessage = async () => {
     if (!input.trim()) return
+
+    if (!graphAwareAI) {
+      const errorMessage: ChatMessage = {
+        id: Date.now().toString(),
+        type: 'assistant',
+        content: '⚠️ AI service is not yet initialized. Please check your API configuration and try again.',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+      return
+    }
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -177,7 +197,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
       setMessages(prev => [...prev, assistantMessage])
 
       // Handle suggestions
-      
+
 
     } catch (error) {
       const errorMessage: ChatMessage = {
@@ -267,11 +287,17 @@ const AIPanel: React.FC<AIPanelProps> = ({
                             sources: [],
                             attachments: []
                           },
-                          aiMetadata: { confidenceScore: 0, lastProcessed: new Date(), agentHistory: [], suggestions: [], flags: { needsReview: false, needsUpdate: false, isStale: false, hasErrors: false } },
+                          aiMetadata: {
+                            discoverySource: 'ai-generated',
+                            confidenceScore: 0,
+                            lastProcessed: new Date(),
+                            agentHistory: [],
+                            suggestions: [],
+                            flags: { needsReview: false, needsUpdate: false, isStale: false, hasErrors: false }
+                          },
                           position3D: { x: 0, y: 0, z: 0 },
                           similarities: new Map(),
                           connections: [],
-                          aiGenerated: true,
                           metadata: { created: new Date(), modified: new Date(), tags: [] }
                         })}
                         sx={{ mt: 0.5 }}
@@ -354,6 +380,25 @@ const AIPanel: React.FC<AIPanelProps> = ({
             />
           </Box>
         </Box>
+
+        {/* AI Service Status */}
+        {!graphAwareAI && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              🔄 AI service initializing...
+              {!aiConfig && " (Missing AI configuration)"}
+              {aiConfig && !aiConfig.apiKey && " (Missing API key)"}
+            </Typography>
+          </Alert>
+        )}
+
+        {graphAwareAI && (
+          <Alert severity="success" sx={{ mb: 1 }}>
+            <Typography variant="body2">
+              ✅ AI connected! Graph: {nodes.size} nodes, {edges.size} edges
+            </Typography>
+          </Alert>
+        )}
 
         {/* Graph Status */}
         <Alert

@@ -1,9 +1,9 @@
 /**
  * Graph-Aware AI Service Extension
- * 
+ *
  * Extends the base AI service with graph context awareness,
  * solving the critical issue where AI couldn't read existing graph state.
- * 
+ *
  * @module GraphAwareAIService
  */
 
@@ -73,7 +73,7 @@ export class GraphAwareAIService extends AIService {
       )
 
       const contextSummary = GraphSerializer.createTextSummary(graphContext)
-      
+
       enhancedPrompt = `# Current Knowledge Graph Context\n\n${contextSummary}\n\n# User Request\n\n${request.prompt}\n\nPlease consider the current knowledge graph when responding. Reference existing nodes and connections where relevant, and suggest how new information could connect to what's already known.`
     }
 
@@ -119,7 +119,7 @@ export class GraphAwareAIService extends AIService {
     const response = await this.generateText({
       prompt: analysisPrompt,
       systemPrompt: "You are an expert knowledge graph analyst. Provide insights based on network structure, identify patterns, gaps, and opportunities for expansion. Be specific and actionable.",
-      maxTokens: 2000
+      maxTokens: 8164
     })
 
     // Parse suggestions from the AI response
@@ -158,7 +158,7 @@ export class GraphAwareAIService extends AIService {
     }> = []
 
     // Focus on a specific node or analyze all nodes
-    const nodesToAnalyze = sourceNodeId 
+    const nodesToAnalyze = sourceNodeId
       ? [this.currentGraph.nodes.get(sourceNodeId)].filter(Boolean)
       : nodes
 
@@ -171,7 +171,7 @@ export class GraphAwareAIService extends AIService {
         ...edges.filter(e => e.target === sourceNode.id).map(e => e.source)
       ])
 
-      const unconnectedNodes = nodes.filter(node => 
+      const unconnectedNodes = nodes.filter(node =>
         node.id !== sourceNode.id && !connectedNodeIds.has(node.id)
       )
 
@@ -184,7 +184,7 @@ export class GraphAwareAIService extends AIService {
 
         if (similarity > 0.3) { // Threshold for suggesting connections
           const connectionType = this.inferConnectionType(sourceNode, targetNode)
-          
+
           suggestions.push({
             source: sourceNode.id,
             target: targetNode.id,
@@ -219,46 +219,17 @@ export class GraphAwareAIService extends AIService {
       reasoning: string
     }>
   }> {
-    const extractionPrompt = `
-Analyze the following text and extract key concepts that could become nodes in a knowledge graph:
-
-"${text}"
-
-Please identify:
-1. Key entities (people, organizations, places, concepts)
-2. Main topics and themes
-3. Relationships between these entities
-
-Format your response as JSON with this structure:
-{
-  "entities": [
-    {
-      "label": "Entity Name",
-      "type": "person|organization|location|concept|topic",
-      "description": "Brief description",
-      "importance": "high|medium|low"
-    }
-  ],
-  "relationships": [
-    {
-      "source": "Entity 1",
-      "target": "Entity 2", 
-      "type": "semantic|causal|temporal|hierarchical",
-      "description": "Relationship description"
-    }
-  ]
-}
-`
+    const extractionPrompt = `\nAnalyze the following text and extract key concepts that could become nodes in a knowledge graph:\n\n"${text}"\n\nPlease identify:\n1. Key entities (people, organizations, places, concepts)\n2. Main topics and themes\n3. Relationships between these entities\n\nFormat your response as JSON with this structure:\n{\n  "entities": [\n    {\n      "label": "Entity Name",\n      "type": "person|organization|location|concept|topic",\n      "description": "Brief description",\n      "importance": "high|medium|low"\n    }\n  ],\n  "relationships": [\n    {\n      "source": "Entity 1",\n      "target": "Entity 2",\n      "type": "semantic|causal|temporal|hierarchical",\n      "description": "Relationship description"\n    }\n  ]\n}\n`
 
     const response = await this.generateText({
       prompt: extractionPrompt,
       format: 'json',
-      maxTokens: 1500
+      maxTokens: 8164
     })
 
     try {
       const parsed = JSON.parse(response.content)
-      
+
       const suggestedNodes = parsed.entities?.map((entity: any) => ({
         label: entity.label,
         type: entity.type,
@@ -294,7 +265,7 @@ Format your response as JSON with this structure:
 
     const nodes = Array.from(this.currentGraph.nodes.values())
     const results: Array<{
-      node: GraphNode
+      node: EnhancedGraphNode
       relevanceScore: number
       reasoning: string
     }> = []
@@ -302,7 +273,7 @@ Format your response as JSON with this structure:
     for (const node of nodes) {
       const nodeText = `${node.label} ${node.richContent.markdown} ${node.metadata.tags.join(' ')}`
       const similarity = await this.calculateSimilarity(query, nodeText)
-      
+
       if (similarity > 0.2) {
         results.push({
           node,
@@ -321,12 +292,12 @@ Format your response as JSON with this structure:
    * Create analysis prompt based on graph context and analytics
    */
   private createAnalysisPrompt(
-    context: GraphContext, 
-    analytics: GraphAnalytics, 
+    context: GraphContext,
+    analytics: GraphAnalytics,
     analysisType: string
   ): string {
     const contextSummary = GraphSerializer.createTextSummary(context)
-    
+
     let prompt = `${contextSummary}\n\n# Graph Analytics\n`
     prompt += `- **Density**: ${(analytics.density * 100).toFixed(2)}% (how well connected the graph is)\n`
     prompt += `- **Average Connections**: ${analytics.averageConnections.toFixed(1)} per node\n`
@@ -337,15 +308,15 @@ Format your response as JSON with this structure:
       case 'detailed':
         prompt += `\n\n# Analysis Request\nProvide a detailed analysis of this knowledge graph including:\n1. Structural strengths and weaknesses\n2. Knowledge gaps and missing connections\n3. Opportunities for expansion\n4. Specific recommendations for improvement\n5. Potential research directions based on the current structure`
         break
-      
+
       case 'connections':
         prompt += `\n\n# Analysis Request\nFocus on the connection patterns in this graph:\n1. Which nodes should be connected but aren't?\n2. What connection types are missing?\n3. Are there any over-connected hub nodes?\n4. What would improve the graph's connectivity?`
         break
-      
+
       case 'gaps':
         prompt += `\n\n# Analysis Request\nIdentify knowledge gaps and missing areas:\n1. What topics are underrepresented?\n2. What connections are obviously missing?\n3. What new areas should be explored?\n4. What would make this knowledge graph more complete?`
         break
-      
+
       default: // overview
         prompt += `\n\n# Analysis Request\nProvide an overview analysis of this knowledge graph focusing on:\n1. Main themes and topics\n2. Overall structure quality\n3. Top 3 strengths\n4. Top 3 areas for improvement`
     }
